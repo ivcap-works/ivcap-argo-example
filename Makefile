@@ -1,0 +1,248 @@
+.PHONY: help install dev-install update poetry-init run-stage1 run-stage2 run-stage3 run-all test-fetch test-preprocess test-classify test-dispatcher test lint format clean docker-build docker-run info prepare-data clean-cache cache-data
+
+# Default Python version
+PYTHON := python3.11
+
+# Run directory for all pipeline outputs (cleared before each run)
+RUN_DIR ?= ./run
+# Output directory for pipeline artifacts
+OUT_DIR ?= $(RUN_DIR)/outputs
+IN_DIR ?= $(OUT_DIR)
+
+help:
+	@echo "Image Classification Pipeline - Available Commands"
+	@echo ""
+	@echo "Setup & Installation:"
+	@echo "  make install          Install dependencies (production)"
+	@echo "  make dev-install      Install dependencies (with dev tools)"
+	@echo "  make poetry-init      Initialize Poetry (run once, if needed)"
+	@echo "  make update           Update all dependencies"
+	@echo ""
+	@echo "Running Pipeline Stages (direct):"
+	@echo "  make run-stage1       Run Stage 1: Fetch model and images"
+	@echo "  make run-stage2       Run Stage 2: Preprocess images"
+	@echo "  make run-stage3       Run Stage 3: Classify images"
+	@echo "  make run-all          Run all stages sequentially"
+	@echo ""
+	@echo "Testing Dispatcher Pattern:"
+	@echo "  make test-fetch       Test dispatcher: Stage 1 (fetch)"
+	@echo "  make test-preprocess  Test dispatcher: Stage 2 (preprocess)"
+	@echo "  make test-classify    Test dispatcher: Stage 3 (classify)"
+	@echo "  make test-dispatcher  Run all dispatcher tests"
+	@echo ""
+	@echo "Development & Testing:"
+	@echo "  make test             Run pytest tests"
+	@echo "  make lint             Run flake8 linting"
+	@echo "  make format           Format code with black"
+	@echo "  make clean            Remove artifacts and cache"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make docker-build     Build Docker image"
+	@echo "  make docker-run       Run pipeline in Docker"
+	@echo ""
+	@echo "Variables:"
+	@echo "  OUT_DIR               Output directory (default: ./outputs)"
+	@echo "  Example: make test-dispatcher OUT_DIR=./custom-output"
+
+# ── Data Preparation ──────────────────────────────────────────────────────────
+
+prepare-data:
+	@echo "▶ Preparing local data (model, labels, images) to ./data directory..."
+	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
+		poetry run $(PYTHON) prepare_data.py
+	@echo "✓ Data prepared successfully to ./data"
+
+# ── Data Caching ──────────────────────────────────────────────────────────────
+
+cache-data:
+	@echo "▶ Caching external data (model, labels, images) to ./data directory..."
+	@mkdir -p ./data
+	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
+		DATA_CACHE_DIR=./data poetry run $(PYTHON) stage1_fetch.py
+	@echo "✓ Data cached successfully to ./data"
+
+
+clean-cache:
+	@echo "Cleaning data cache..."
+	@rm -rf ./data
+	@echo "✓ Data cache cleaned"
+
+# ── Setup & Installation ──────────────────────────────────────────────────────
+
+poetry-init:
+	@echo "Initializing Poetry project..."
+	@if [ ! -f pyproject.toml ]; then \
+		poetry init --no-interaction --name image-classify-app --description "Image Classification Pipeline" --author "Your Name"; \
+	else \
+		echo "pyproject.toml already exists"; \
+	fi
+
+install:
+	@echo "Installing production dependencies..."
+	poetry install
+
+dev-install:
+	@echo "Installing dependencies (including dev tools)..."
+	poetry install
+	@echo ""
+	@echo "Optional: Install ONNX Runtime (may require compatible pre-built wheels)"
+	@echo "  make install-onnx"
+
+install-onnx:
+	@echo "Installing onnxruntime from requirements-optional.txt..."
+	@poetry run pip install -r requirements-optional.txt || \
+		echo "⚠ Warning: onnxruntime installation failed. You may need to:"
+	@echo "  1. Build from source: pip install --no-binary :all: onnxruntime"
+	@echo "  2. Use a pre-compiled wheel from GitHub Releases"
+	@echo "  3. Use conda-forge: conda install onnxruntime"
+
+
+update:
+	@echo "Updating all dependencies..."
+	poetry update
+
+# ── Pipeline Stages ──────────────────────────────────────────────────────────
+
+# Dynamically extract UUIDs from data files and construct artifact URNs
+# This makes the Makefile resilient to future changes in model/image collections
+IMAGES_UUID := $(shell ls data/images-*.zip 2>/dev/null | sed 's|.*images-||; s|\.zip||' || echo '')
+IMAGES_ARTIFACT_URN := urn:ivcap:artifact:$(IMAGES_UUID)
+
+MODEL_UUID := $(shell ls data/model-*.zip 2>/dev/null | sed 's|.*model-||; s|\.zip||' || echo '')
+MODEL_ARTIFACT_URN := urn:ivcap:artifact:$(MODEL_UUID)
+
+reset-run:
+	@echo "▶ Clearing run directory: $(RUN_DIR)..."
+	@rm -rf $(RUN_DIR)
+	@mkdir -p $(RUN_DIR)
+	@echo "✓ Run directory reset"
+
+run-stage1:
+	@echo "▶ Stage 1: Fetching model and sample images..."
+	@mkdir -p $(OUT_DIR)
+	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
+		OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage1_fetch.py \
+		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--model-artifact-urn $(MODEL_ARTIFACT_URN)
+	@echo "✓ Stage 1 complete"
+
+
+run-stage2: run-stage1
+	@echo "▶ Stage 2: Preprocessing images..."
+	@IN_DIR=$(OUT_DIR) OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage2_preprocess.py
+	@echo "✓ Stage 2 complete"
+
+run-stage3: run-stage2
+	@echo "▶ Stage 3: Classifying images..."
+	@IN_DIR=$(OUT_DIR) OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage3_classify.py
+	@echo "✓ Stage 3 complete"
+
+run-all: run-stage3
+	@echo ""
+	@echo "✓✓✓ Pipeline complete!"
+	@echo "Results written to: $(OUT_DIR)/results.json"
+	@if [ -f $(OUT_DIR)/results.json ]; then \
+		echo ""; \
+		echo "Preview:"; \
+		head -30 $(OUT_DIR)/results.json; \
+	fi
+
+# ── Dispatcher Pattern Tests (new) ────────────────────────────────────────────
+
+test-fetch:
+	@echo "▶ Testing dispatcher: Stage 1 (fetch)..."
+	@mkdir -p $(OUT_DIR)
+	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
+		LOG_LEVEL=INFO poetry run $(PYTHON) dispatcher.py --stage fetch --out-dir $(OUT_DIR)
+	@echo "✓ Dispatcher fetch test complete"
+
+
+test-preprocess: test-fetch
+	@echo "▶ Testing dispatcher: Stage 2 (preprocess)..."
+	@LOG_LEVEL=INFO poetry run $(PYTHON) dispatcher.py --stage preprocess --in-dir $(OUT_DIR) --out-dir $(OUT_DIR)
+	@echo "✓ Dispatcher preprocess test complete"
+
+test-classify: test-preprocess
+	@echo "▶ Testing dispatcher: Stage 3 (classify)..."
+	@LOG_LEVEL=INFO poetry run $(PYTHON) dispatcher.py --stage classify --in-dir $(OUT_DIR) --out-dir $(OUT_DIR)
+	@echo "✓ Dispatcher classify test complete"
+
+test-dispatcher: test-classify
+	@echo ""
+	@echo "✓✓✓ Dispatcher pipeline test complete!"
+	@echo "Results written to: $(OUT_DIR)/results.json"
+	@if [ -f $(OUT_DIR)/results.json ]; then \
+		echo ""; \
+		echo "Preview:"; \
+		head -30 $(OUT_DIR)/results.json; \
+	fi
+
+# ── Development & Testing ────────────────────────────────────────────────────
+
+test:
+	@echo "Running tests..."
+	@poetry run pytest -v
+
+lint:
+	@echo "Running flake8 linting..."
+	@poetry run flake8 stage*.py --max-line-length=100 --ignore=E501,W503
+
+format:
+	@echo "Formatting code with black..."
+	@poetry run black stage*.py --line-length=100
+
+clean:
+	@echo "Cleaning up artifacts and cache..."
+	@rm -rf __pycache__ .pytest_cache .mypy_cache *.pyc
+	@rm -rf $(OUT_DIR)/model $(OUT_DIR)/images $(OUT_DIR)/tensors $(OUT_DIR)/*.json
+	@echo "✓ Clean complete"
+
+# ── Docker helpers (optional) ──────────────────────────────────────────────────
+
+docker-build:
+	@echo "Building Docker image..."
+	@docker build -t image-classify-app:latest .
+
+docker-run: reset-run
+	@echo "▶ Running Stage 1 (Fetch) in Docker..."
+	@docker run --rm -v $(RUN_DIR):/workspace \
+		-e IVCAP_URL=$(shell ivcap context get url) \
+		-e IVCAP_JWT=$(shell ivcap context get access-token) \
+		-e LOG_LEVEL=INFO \
+		image-classify-app:latest \
+		--stage fetch --out-dir /workspace/outputs \
+		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--model-artifact-urn $(MODEL_ARTIFACT_URN)
+	@echo "✓ Stage 1 complete"
+	@echo ""
+	@echo "▶ Running Stage 2 (Preprocess) in Docker..."
+	@docker run --rm -v $(RUN_DIR):/workspace \
+		-e LOG_LEVEL=INFO \
+		image-classify-app:latest \
+		--stage preprocess --in-dir /workspace/outputs --out-dir /workspace/outputs
+	@echo "✓ Stage 2 complete"
+	@echo ""
+	@echo "▶ Running Stage 3 (Classify) in Docker..."
+	@docker run --rm -v $(RUN_DIR):/workspace \
+		-e LOG_LEVEL=INFO \
+		image-classify-app:latest \
+		--stage classify --in-dir /workspace/outputs --out-dir /workspace/outputs
+	@echo "✓ Stage 3 complete"
+	@echo ""
+	@echo "✓✓✓ Docker pipeline complete!"
+	@echo "Results written to: $(RUN_DIR)/outputs/results.json"
+	@if [ -f $(RUN_DIR)/outputs/results.json ]; then \
+		echo ""; \
+		echo "Preview:"; \
+		head -30 $(RUN_DIR)/outputs/results.json; \
+	fi
+
+# ── Info ───────────────────────────────────────────────────────────────────────
+
+info:
+	@echo "Project Information:"
+	@echo "  Python version: $$($(PYTHON) --version)"
+	@poetry --version
+	@echo ""
+	@echo "Dependencies:"
+	@poetry show --tree

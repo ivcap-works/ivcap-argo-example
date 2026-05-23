@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "image-classify-app"
+version = "0.1.0"
+description = "Image Classification Pipeline using MobileNetV2 ONNX model"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+package-mode = false
+
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pillow = "^10.0.0"
+numpy = "^1.24.0"
+onnxruntime = "^1.17.0"
+ivcap-client = "^0.47.0"
+pydantic = "^2.13.4"
+
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+black = "^23.0.0"
+flake8 = "^6.0.0"
+mypy = "^1.4.0"
+torchvision = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
