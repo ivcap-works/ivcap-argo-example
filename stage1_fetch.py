@@ -43,11 +43,11 @@ def fetch_artifact_and_extract(
     try:
         from ivcap_client import IVCAP
     except ImportError:
-        print(f"ERROR: ivcap-client not installed", file=sys.stderr)
-        print(f"  Install with: pip install ivcap-client", file=sys.stderr)
+        print("ERROR: ivcap-client not installed", file=sys.stderr)
+        print("  Install with: poetry add ivcap-client", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Fetching {artifact_type} artifact → {artifact_urn}", flush=True)
+    print(f"Fetching '{artifact_type}' artifact → {artifact_urn}", flush=True)
 
     try:
         # Create IVCAP instance (reads IVCAP_URL and IVCAP_JWT from environment)
@@ -58,14 +58,12 @@ def fetch_artifact_and_extract(
             temp_zip_path = os.path.join(temp_dir, f"{artifact_type}.zip")
 
             # Download the artifact
-            print(f"  Downloading {artifact_type} artifact...", flush=True)
+            print(f"  Downloading '{artifact_type}' artifact...", flush=True)
             artifact = ivcap.get_artifact(artifact_urn)
-            artifact_path = artifact.as_local_file()
+            temp_zip_path = artifact.as_local_file()
 
-            # Copy the artifact to our temp location
-            shutil.copy2(artifact_path, temp_zip_path)
-
-            # Check if the download was successful
+            # Check if the download was successful.
+            # The artifact download should have reported that already, but we check again to be sure.
             if not os.path.exists(temp_zip_path):
                 raise FileNotFoundError(f"Failed to download artifact {artifact_urn}")
 
@@ -73,7 +71,7 @@ def fetch_artifact_and_extract(
             print(f"  Downloaded: {size_mb:.1f} MB", flush=True)
 
             # Extract the zip file
-            print(f"  Extracting {artifact_type} artifact...", flush=True)
+            print(f"  Extracting '{artifact_type}' artifact...", flush=True)
             os.makedirs(extract_to, exist_ok=True)
 
             with zipfile.ZipFile(temp_zip_path, "r") as zipf:
@@ -82,7 +80,7 @@ def fetch_artifact_and_extract(
             print(f"  Extracted to {extract_to}", flush=True)
 
     except Exception as exc:
-        print(f"  ERROR fetching {artifact_type} artifact: {exc}", file=sys.stderr)
+        print(f"  ERROR fetching '{artifact_type}' artifact: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -115,7 +113,7 @@ def fetch_stage(
     os.makedirs(image_dir, exist_ok=True)
 
     # ── Fetch model artifact ──────────────────────────────────────────────────────
-    print(f"Stage 1: Fetching artifacts from IVCAP", flush=True)
+    print("Stage 1: Fetching artifacts from IVCAP", flush=True)
     fetch_artifact_and_extract(model_artifact_urn, model_dir, artifact_type="model")
 
     # ── Fetch images artifact ─────────────────────────────────────────────────────
@@ -151,7 +149,7 @@ def fetch_stage(
     with open(labels_file) as f:
         n_labels = sum(1 for _ in f)
 
-    print(f"\nStage 1 complete.")
+    print("Stage 1 complete.")
     print(f"  Model: {model_file} ({os.path.getsize(model_file) / 1e6:.1f} MB)")
     print(f"  Labels: {n_labels} classes")
     print(f"  Images: {len(image_files)} images")

@@ -6,6 +6,23 @@ No GPU, no model training, no external model registry required.
 
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture & Data Flow](#architecture--data-flow)
+  - [Key Concepts](#key-concepts)
+- [Files](#files)
+- [Data Preparation](#data-preparation--creating-the-artifacts)
+- [Model](#model)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Local Development & Testing](#local-development--testing)
+- [Deploying to Kubernetes](#deploying-the-workflow-to-kubernetes)
+- [Troubleshooting](#troubleshooting)
+- [References](#references)
+
+---
+
 ## Overview
 
 ```
@@ -85,12 +102,18 @@ This project follows a **producer-consumer pattern** using IVCAP artifacts:
 ### Key Concepts
 
 **Artifacts**: ZIP files uploaded to IVCAP that contain reusable data
+
 - **Images artifact**: Contains all sample images (image_0000.jpg, etc.)
 - **Model artifact**: Contains the ONNX model and class labels
 
 **Dispatcher Pattern**: The `dispatcher.py` script routes invocations to
 different stage functions based on `--stage` argument. This allows the same
 Docker image to run all three stages with different entry points.
+
+> **Note on Dispatcher Usage**: This demo uses a single image for simplicity. In a more
+> involved production pipeline, you would typically build **separate Docker images for
+> each stage** (e.g., `fetch:v1.0`, `preprocess:v1.0`, `classify:v1.0`), each with
+> only the dependencies it needs.
 
 ---
 
@@ -483,6 +506,11 @@ templates:
 ```
 
 ### Submitting the Workflow
+
+> **Note**: The following instructions are for testing the argo deployment
+> with its native tooling as the IVCAP argo dispatcher is not deployed yet.
+> We will replace this section with using IVCAP tooling as soon as that is
+> in place.
 
 Submit with default parameters:
 
