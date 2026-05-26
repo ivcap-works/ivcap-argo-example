@@ -1,5 +1,0 @@
-# Optional dependencies for ONNX Runtime
-# These may have platform-specific availability
-# Install with: pip install -r requirements-optional.txt
-
-onnxruntime>=1.17.0

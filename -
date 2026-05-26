@@ -1,0 +1,187 @@
+$id: urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14
+$schema: urn:ivcap:schema.service.2
+name: ivcap-entrez-service
+description: |
+  A self-contained, three-stage Argo Workflow that classifies images using a
+  pretrained **MobileNetV2** model via **ONNX Runtime**..
+
+  Stages:
+    1. fetch      – download model (mobilenetv2-12.onnx), and images (packaged as IVCAP artifacts)
+    2. preprocess – resize + centre-crop + normalise each image → .npy tensors
+    3. classify   – run ONNX Runtime inference, write results.json
+contact:
+  email: mary.doe@acme.au
+  name: Mary Doe
+request-schema:
+  $id: urn:ivcap.tutorial:schema:image-classify-pipeline.request.1
+  $schema: http://json-schema.org/draft-07/schema#
+  properties:
+    images_artifact_urn:
+      type: string
+      description: IVCAP artifact URN containing sample images for classification
+      pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
+      example: 'urn:ivcap:artifact:fac6093e-d142-4958-9241-b02a81abb5d0'
+    model_artifact_urn:
+      type: string
+      description: IVCAP artifact URN containing the pretrained MobileNetV2 ONNX model
+      pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
+      example: 'urn:ivcap:artifact:0b7d5c7e-ba9f-46a1-a80d-0dc6bb5a9b90'
+  required:
+    - images_artifact_urn
+    - model_artifact_urn
+  title: Request to run image classification pipeline
+  type: object
+controller-schema: urn:ivcap:schema.service.argo.1
+controller:
+  $schema: urn:ivcap:schema.service.argo.1
+  workflow:
+    # image-classify-workflow.yaml
+    #
+    # Multi-stage Argo Workflow: Pretrained Image Classification with MobileNetV2
+    #
+    # Stages:
+    #   1. fetch      – download model (mobilenetv2-12.onnx), ImageNet labels,
+    #                   and sample images (packaged as IVCAP artifacts)
+    #   2. preprocess – resize + centre-crop + normalise each image → .npy tensors
+    #   3. classify   – run ONNX Runtime inference, write results.json
+    #
+    # All stages share a single emptyDir volume (/workspace) so no external
+    # artifact store (S3/MinIO) is required for a self-contained demo.
+    # Each stage is a separate Kubernetes Pod.
+    #
+    # All stages use a single custom Docker image that includes dispatcher.py
+    # and all Python stage modules, eliminating the need for inline scripts or
+    # ConfigMap mounts.
+    #
+    # Prerequisites:
+    #   kubectl apply -n argo -f https://github.com/argoproj/argo-workflows/releases/latest/download/install.yaml
+    #
+    # Usage:
+    #   argo submit image-classify-workflow.yaml --watch
+    #   argo submit image-classify-workflow.yaml \
+    #     -p images_artifact_urn=urn:ivcap:artifact:xxx \
+    #     -p model_artifact_urn=urn:ivcap:artifact:yyy \
+    #     --watch
+    #
+    apiVersion: argoproj.io/v1alpha1
+    kind: Workflow
+    metadata:
+      generateName: image-classify-
+      labels:
+        demo: mobilenetv2-onnx
+    spec:
+      # ── Global settings ──────────────────────────────────────────────────────────
+      entrypoint: pipeline
+      arguments:
+        parameters:
+          # IVCAP artifact URNs for images and model (required parameters)
+          - name: images_artifact_urn
+          - name: model_artifact_urn
+      # Shared volume: all three pods mount this at /workspace
+      volumeClaimTemplates:
+        - metadata:
+            name: workspace
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 500Mi # model ~13 MB + images + tensors, headroom to spare
+      # ── Top-level pipeline ───────────────────────────────────────────────────────
+      templates:
+        - name: pipeline
+          steps:
+            # Stage 1 runs first, alone
+            - - name: fetch
+                template: fetch-model-and-images
+            # Stage 2 runs after Stage 1 completes
+            - - name: preprocess
+                template: preprocess-images
+            # Stage 3 runs after Stage 2 completes
+            - - name: classify
+                template: classify-images
+        # ── Stage 1: Fetch ──────────────────────────────────────────────────────────
+        - name: fetch-model-and-images
+          metadata:
+            labels:
+              stage: "1-fetch"
+          container:
+            image: "python:3.11-slim"
+            command: [python, dispatcher.py]
+            args:
+              - --stage
+              - fetch
+              - --images-artifact-urn
+              - "{{workflow.parameters.images_artifact_urn}}"
+              - --model-artifact-urn
+              - "{{workflow.parameters.model_artifact_urn}}"
+              - --out-dir
+              - /workspace/data
+            env:
+              - name: LOG_LEVEL
+                value: "INFO"
+            volumeMounts:
+              - name: workspace
+                mountPath: /workspace
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "250m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+        # ── Stage 2: Preprocess ─────────────────────────────────────────────────────
+        - name: preprocess-images
+          metadata:
+            labels:
+              stage: "2-preprocess"
+          container:
+            image: "python:3.11-slim"
+            command: [python, dispatcher.py]
+            args:
+              - --stage
+              - preprocess
+              - --in-dir
+              - /workspace/data
+              - --out-dir
+              - /workspace/data
+            env:
+              - name: LOG_LEVEL
+                value: "INFO"
+            volumeMounts:
+              - name: workspace
+                mountPath: /workspace
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "500m"
+              limits:
+                memory: "512Mi"
+                cpu: "1000m"
+        # ── Stage 3: Classify ───────────────────────────────────────────────────────
+        - name: classify-images
+          metadata:
+            labels:
+              stage: "3-classify"
+          container:
+            image: "python:3.11-slim"
+            command: [python, dispatcher.py]
+            args:
+              - --stage
+              - classify
+              - --in-dir
+              - /workspace/data
+              - --out-dir
+              - /workspace/data
+            env:
+              - name: LOG_LEVEL
+                value: "INFO"
+            volumeMounts:
+              - name: workspace
+                mountPath: /workspace
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "500m"
+              limits:
+                memory: "1Gi"
+                cpu: "2000m"

@@ -4,7 +4,7 @@
 #
 # Stages:
 #   1. fetch      – download model (mobilenetv2-12.onnx), ImageNet labels,
-#                   and sample images from Wikimedia Commons
+#                   and sample images (packaged as IVCAP artifacts)
 #   2. preprocess – resize + centre-crop + normalise each image → .npy tensors
 #   3. classify   – run ONNX Runtime inference, write results.json
 #
@@ -21,10 +21,10 @@
 #
 # Usage:
 #   argo submit image-classify-workflow.yaml --watch
-#   argo submit image-classify-workflow.yaml -p log_level=DEBUG --watch
-#   argo submit image-classify-workflow.yaml -p docker_image=myregistry/classifier:1.0 --watch
-#
-# To swap in a different set of images, override the image_urls parameter.
+#   argo submit image-classify-workflow.yaml \
+#     -p images_artifact_urn=urn:ivcap:artifact:xxx \
+#     -p model_artifact_urn=urn:ivcap:artifact:yyy \
+#     --watch
 #
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
@@ -38,17 +38,9 @@ spec:
 
   arguments:
     parameters:
-      # Custom Docker image containing dispatcher.py and all stage modules
-      - name: docker_image
-        value: "python:3.11-slim"  # Replace with myregistry/classifier:1.0 for production
-      # Python package versions – pin for reproducibility
-      - name: onnxruntime_version
-        value: "1.18.1"
-      - name: pillow_version
-        value: "10.3.0"
-      # Logging level forwarded to all stages via LOG_LEVEL env var
-      - name: log_level
-        value: "INFO"
+      # IVCAP artifact URNs for images and model (required parameters)
+      - name: images_artifact_urn
+      - name: model_artifact_urn
 
   # Shared volume: all three pods mount this at /workspace
   volumeClaimTemplates:
@@ -82,16 +74,20 @@ spec:
         labels:
           stage: "1-fetch"
       container:
-        image: "{{workflow.parameters.docker_image}}"
-        command: [python, dispatcher.py]
+        image: "@DOCKER_IMAGE@"
+        command: ["./run.sh"]
         args:
           - --stage
           - fetch
+          - --images-artifact-urn
+          - "{{workflow.parameters.images_artifact_urn}}"
+          - --model-artifact-urn
+          - "{{workflow.parameters.model_artifact_urn}}"
           - --out-dir
           - /workspace/data
         env:
           - name: LOG_LEVEL
-            value: "{{workflow.parameters.log_level}}"
+            value: "INFO"
         volumeMounts:
           - name: workspace
             mountPath: /workspace
@@ -109,8 +105,8 @@ spec:
         labels:
           stage: "2-preprocess"
       container:
-        image: "{{workflow.parameters.docker_image}}"
-        command: [python, dispatcher.py]
+        image: "@DOCKER_IMAGE@"
+        command: ["./run.sh"]
         args:
           - --stage
           - preprocess
@@ -120,7 +116,7 @@ spec:
           - /workspace/data
         env:
           - name: LOG_LEVEL
-            value: "{{workflow.parameters.log_level}}"
+            value: "INFO"
         volumeMounts:
           - name: workspace
             mountPath: /workspace
@@ -138,8 +134,8 @@ spec:
         labels:
           stage: "3-classify"
       container:
-        image: "{{workflow.parameters.docker_image}}"
-        command: [python, dispatcher.py]
+        image: "@DOCKER_IMAGE@"
+        command: ["./run.sh"]
         args:
           - --stage
           - classify
@@ -149,7 +145,7 @@ spec:
           - /workspace/data
         env:
           - name: LOG_LEVEL
-            value: "{{workflow.parameters.log_level}}"
+            value: "INFO"
         volumeMounts:
           - name: workspace
             mountPath: /workspace
@@ -160,45 +156,3 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "2000m"
-
-# ── Notes ────────────────────────────────────────────────────────────────────
-#
-# Deployment approach (used in this workflow):
-#
-#   The workflow uses a SINGLE custom Docker image approach with a unified
-#   dispatcher pattern:
-#
-#   1. dispatcher.py – routes CLI invocations to stage functions
-#      Usage: python dispatcher.py --stage <fetch|preprocess|classify> [--in-dir ...] [--out-dir ...]
-#
-#   2. All Python stage modules (stage1_fetch.py, stage2_preprocess.py, etc.)
-#      are included in the Docker image and imported by dispatcher.py
-#
-#   3. Build and push the custom image:
-#        docker build -t myregistry/classifier:1.0 .
-#        docker push myregistry/classifier:1.0
-#
-#   4. Submit the workflow with the custom image:
-#        argo submit image-classify-workflow.yaml \
-#          -p docker_image=myregistry/classifier:1.0 \
-#          --watch
-#
-#   Benefits:
-#   - No inline scripts or ConfigMap mounts needed
-#   - Eliminates per-pod pip installs (all deps pre-packaged)
-#   - Clean separation of concerns (dispatcher handles routing)
-#   - Faster execution at scale
-#   - Easier to test locally: docker run myregistry/classifier:1.0 --help
-#
-# Artifact store (for multi-cluster or persistent results):
-#   Replace the shared emptyDir volume with Argo artifact configuration
-#   pointing at MinIO or S3.  Stage outputs become named artifacts:
-#     outputs:
-#       artifacts:
-#         - name: manifest
-#           path: /workspace/data/manifest.json
-#           s3: { bucket: my-bucket, key: "{{workflow.name}}/manifest.json" }
-#
-# Scaling:
-#   To classify a large batch, replace Stage 2 and 3 with withItems loops
-#   so each image is preprocessed and classified in a separate parallel pod.

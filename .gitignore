@@ -41,9 +41,6 @@ env/
 *~
 .DS_Store
 
-# Poetry
-poetry.lock
-
 # Outputs (if not already in .gitkeep or similar)
 outputs/
 imagenette_data/
@@ -51,3 +48,6 @@ imagenette_data/
 # Environment files
 .env
 .env.local
+
+# temp files
+ivcap-service-with-workflow.yaml

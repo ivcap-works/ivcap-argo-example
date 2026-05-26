@@ -37,6 +37,10 @@ RUN chmod +x run.sh
 # Create workspace directory for data/outputs
 RUN mkdir -p /workspace
 
+# VERSION INFORMATION
+ARG VERSION ???
+ENV VERSION=$VERSION
+
 # The entry point will be called by the workflow with stage-specific arguments
 # Example: ./run.sh --stage fetch --out-dir /workspace/outputs
 ENTRYPOINT ["/app/run.sh"]

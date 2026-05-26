@@ -1,4 +1,18 @@
-.PHONY: help install dev-install update poetry-init run-stage1 run-stage2 run-stage3 run-all test-fetch test-preprocess test-classify test-dispatcher test lint format clean docker-build docker-run info prepare-data clean-cache cache-data
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+
+# IVCAP Service ID
+SERVICE_ID := urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14
+
+# Docker image name and tag
+DOCKER_IMAGE := image-classify-app
+DOCKER_TAG := latest
+
+# Version information (derived from git and date)
+GIT_VERSION := $(shell git describe --tags --always 2>/dev/null || echo "0.1.1")
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%S%z' | sed 's/\(..\)$$/:\1/')
+VERSION := $(GIT_VERSION)|$(GIT_COMMIT)|$(DATE)
 
 # Default Python version
 PYTHON := python3.11
@@ -201,7 +215,7 @@ clean:
 
 docker-build:
 	@echo "Building Docker image..."
-	@docker build -t image-classify-app:latest .
+	@docker build -t $(DOCKER_IMAGE):latest .
 
 docker-run: reset-run
 	@echo "▶ Running Stage 1 (Fetch) in Docker..."
@@ -209,7 +223,7 @@ docker-run: reset-run
 		-e IVCAP_URL=$(shell ivcap context get url) \
 		-e IVCAP_JWT=$(shell ivcap context get access-token) \
 		-e LOG_LEVEL=INFO \
-		image-classify-app:latest \
+		$(DOCKER_IMAGE):latest \
 		--stage fetch --out-dir /workspace/outputs \
 		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
 		--model-artifact-urn $(MODEL_ARTIFACT_URN)
@@ -218,14 +232,14 @@ docker-run: reset-run
 	@echo "▶ Running Stage 2 (Preprocess) in Docker..."
 	@docker run --rm -v $(RUN_DIR):/workspace \
 		-e LOG_LEVEL=INFO \
-		image-classify-app:latest \
+		$(DOCKER_IMAGE):latest \
 		--stage preprocess --in-dir /workspace/outputs --out-dir /workspace/outputs
 	@echo "✓ Stage 2 complete"
 	@echo ""
 	@echo "▶ Running Stage 3 (Classify) in Docker..."
 	@docker run --rm -v $(RUN_DIR):/workspace \
 		-e LOG_LEVEL=INFO \
-		image-classify-app:latest \
+		$(DOCKER_IMAGE):latest \
 		--stage classify --in-dir /workspace/outputs --out-dir /workspace/outputs
 	@echo "✓ Stage 3 complete"
 	@echo ""
@@ -237,6 +251,34 @@ docker-run: reset-run
 		head -30 $(RUN_DIR)/outputs/results.json; \
 	fi
 
+# ── Service Management ────────────────────────────────────────────────────────
+
+DOCKER_TAG=${GIT_COMMIT}
+register-service: ivcap-docker-build
+	@echo "▶ Merging IVCAP service definition with workflow..."
+	./merge-ivcap-workflow.sh ivcap.yml image-classify-workflow.yaml ivcap-service-with-workflow.yaml
+	@echo "▶ Replacing Docker image placeholder with $(DOCKER_IMAGE)..."
+	@sed -i '' 's|@DOCKER_IMAGE@|$(shell ivcap package list $(DOCKER_IMAGE)_amd64:${DOCKER_TAG})|g' ivcap-service-with-workflow.yaml
+	@echo ""
+	@echo "✓ Service definition merged: ivcap-service-with-workflow.yaml"
+	@echo "▶ Register service with IVCAP"
+	ivcap df update ${SERVICE_ID} -f ivcap-service-with-workflow.yaml
+
+DOCKER_TAG=${GIT_COMMIT}
+ivcap-docker-build:
+	@echo "▶ Building Docker image for IVCAP service..."
+	@echo "  Version: $(VERSION)"
+	docker buildx build \
+		-t $(DOCKER_IMAGE)_amd64:${DOCKER_TAG} \
+		--platform linux/amd64 \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg BUILD_PLATFORM=linux/amd64 \
+		-f Dockerfile \
+		--load .
+	@echo "------------------------------------------------------"
+	@echo "▶ Uploading Docker image for IVCAP service..."
+	ivcap package push $(DOCKER_IMAGE)_amd64:${DOCKER_TAG}
+
 # ── Info ───────────────────────────────────────────────────────────────────────
 
 info:
@@ -246,3 +288,5 @@ info:
 	@echo ""
 	@echo "Dependencies:"
 	@poetry show --tree
+
+.PHONY: help install dev-install update poetry-init run-stage1 run-stage2 run-stage3 run-all test-fetch test-preprocess test-classify test-dispatcher test lint format clean docker-build docker-run info prepare-data clean-cache cache-data

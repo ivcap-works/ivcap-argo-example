@@ -1,0 +1,37 @@
+$id: urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14
+$schema: urn:ivcap:schema.service.2
+name: ivcap-entrez-service
+description: |
+  A self-contained, three-stage Argo Workflow that classifies images using a
+  pretrained **MobileNetV2** model via **ONNX Runtime**..
+
+  Stages:
+    1. fetch      – download model (mobilenetv2-12.onnx), and images (packaged as IVCAP artifacts)
+    2. preprocess – resize + centre-crop + normalise each image → .npy tensors
+    3. classify   – run ONNX Runtime inference, write results.json
+contact:
+  email: mary.doe@acme.au
+  name: Mary Doe
+request-schema:
+  $id: urn:ivcap.tutorial:schema:image-classify-pipeline.request.1
+  $schema: http://json-schema.org/draft-07/schema#
+  properties:
+    images_artifact_urn:
+      type: string
+      description: IVCAP artifact URN containing sample images for classification
+      pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
+      example: 'urn:ivcap:artifact:fac6093e-d142-4958-9241-b02a81abb5d0'
+    model_artifact_urn:
+      type: string
+      description: IVCAP artifact URN containing the pretrained MobileNetV2 ONNX model
+      pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
+      example: 'urn:ivcap:artifact:0b7d5c7e-ba9f-46a1-a80d-0dc6bb5a9b90'
+  required:
+  - images_artifact_urn
+  - model_artifact_urn
+  title: Request to run image classification pipeline
+  type: object
+
+controller-schema: urn:ivcap:schema.service.argo.1
+controller:
+  $schema: urn:ivcap:schema.service.argo.1
