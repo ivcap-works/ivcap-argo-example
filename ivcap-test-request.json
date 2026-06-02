@@ -1,0 +1,5 @@
+{
+  "$schmea": "urn:ivcap.tutorial:schema:image-classify-pipeline.request.1",
+  "images_artifact_urn": "urn:ivcap:artifact:fac6093e-d142-4958-9241-b02a81abb5d0",
+  "model_artifact_urn": "urn:ivcap:artifact:0b7d5c7e-ba9f-46a1-a80d-0dc6bb5a9b90"
+}

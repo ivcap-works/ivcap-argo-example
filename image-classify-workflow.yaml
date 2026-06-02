@@ -6,7 +6,7 @@
 #   1. fetch      – download model (mobilenetv2-12.onnx), ImageNet labels,
 #                   and sample images (packaged as IVCAP artifacts)
 #   2. preprocess – resize + centre-crop + normalise each image → .npy tensors
-#   3. classify   – run ONNX Runtime inference, write results.json
+#   3. classify   – run ONNX Runtime inference, write result.ivcap.json
 #
 # All stages share a single emptyDir volume (/workspace) so no external
 # artifact store (S3/MinIO) is required for a self-contained demo.
@@ -67,6 +67,14 @@ spec:
         # Stage 3 runs after Stage 2 completes
         - - name: classify
             template: classify-images
+
+      # Propagate the classify step's result to the workflow-level outputs so
+      # the IVCAP Argo controller can read it via wf.Status.Outputs.Parameters.
+      outputs:
+        parameters:
+          - name: result
+            valueFrom:
+              parameter: "{{steps.classify.outputs.parameters.result}}"
 
     # ── Stage 1: Fetch ──────────────────────────────────────────────────────────
     - name: fetch-model-and-images
@@ -146,6 +154,10 @@ spec:
         env:
           - name: LOG_LEVEL
             value: "INFO"
+          # Tells stage3_classify.py where to write the IVCAP result file.
+          # Must match the path declared in outputs.parameters below.
+          - name: IVCAP_RESULT_PATH
+            value: "/result.ivcap.json"
         volumeMounts:
           - name: workspace
             mountPath: /workspace
@@ -156,3 +168,11 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "2000m"
+      # Argo reads /result.ivcap.json after the container exits and stores its
+      # content in the workflow outputs — the IVCAP controller picks it up from
+      # wf.Status.Outputs.Parameters["result"].Value (max 256 KB via etcd).
+      outputs:
+        parameters:
+          - name: result
+            valueFrom:
+              path: /result.ivcap.json

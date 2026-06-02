@@ -3,7 +3,7 @@
 Stage 3 – Classify images with MobileNetV2-12 via ONNX Runtime.
 
 Loads each preprocessed tensor, runs it through the model, applies softmax,
-and writes the top-5 predictions per image to results.json.
+and writes the top-5 predictions per image to result.ivcap.json.
 
 Model input  : name='data', shape=(1,3,224,224), dtype=float32  (NCHW)
 Model output : name='output', shape=(1,1000),    dtype=float32  (raw logits)
@@ -17,7 +17,9 @@ Inputs  (from $IN_DIR, default /tmp/outputs):
   - manifest.json
 
 Outputs (written to $OUT_DIR, default /tmp/outputs):
-  - results.json
+  - result.ivcap.json   (path overridden by $IVCAP_RESULT_PATH; Argo sets it to
+                         /result.ivcap.json so the executor can capture it as an
+                         output parameter for the IVCAP controller)
 """
 
 import os
@@ -105,11 +107,15 @@ def classify_stage(in_dir: str = "/tmp/outputs", out_dir: str = "/tmp/outputs") 
         )
 
     # ── Write results ─────────────────────────────────────────────────────────────
-    out_path = os.path.join(out_dir, "results.json")
+    # $IVCAP_RESULT_PATH is set to /result.ivcap.json by the Argo workflow template
+    # so the executor captures it as an output parameter for the IVCAP controller.
+    # When running locally the env var is unset and the file lands in out_dir.
+    out_path = os.environ.get(
+        "IVCAP_RESULT_PATH", os.path.join(out_dir, "result.ivcap.json")
+    )
     with open(out_path, "w") as f:
         json.dump({"model": "mobilenetv2-12", "results": results}, f, indent=2)
-
-    print(f"\nStage 3 complete. Results → {out_path}")
+    print(f"\nStage 3 complete. Results → {out_path}", flush=True)
 
 
 if __name__ == "__main__":

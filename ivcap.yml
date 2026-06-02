@@ -1,6 +1,6 @@
 $id: urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14
 $schema: urn:ivcap:schema.service.2
-name: ivcap-entrez-service
+name: ivcap-argo-example-image-classification
 description: |
   A self-contained, three-stage Argo Workflow that classifies images using a
   pretrained **MobileNetV2** model via **ONNX Runtime**..

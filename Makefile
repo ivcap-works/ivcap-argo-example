@@ -51,11 +51,18 @@ help:
 	@echo "  make clean            Remove artifacts and cache"
 	@echo ""
 	@echo "Docker:"
-	@echo "  make docker-build     Build Docker image"
+	@echo "  make docker-build     Build Docker image (local, multi-arch)"
 	@echo "  make docker-run       Run pipeline in Docker"
+	@echo ""
+	@echo "IVCAP Upload & Service Management:"
+	@echo "  make ivcap-docker-publish  Build linux/amd64 image & push to IVCAP registry"
+	@echo "  make register-service    Build+push image, merge workflow, register service"
+	@echo "  make ivcap-test-job      Submit a test job to IVCAP (uses ivcap-test-request.json)"
+	@echo "  make ivcap-test-job-local  Submit a test job via local IVCAP context"
 	@echo ""
 	@echo "Variables:"
 	@echo "  OUT_DIR               Output directory (default: ./outputs)"
+	@echo "  CONTEXT               IVCAP context for local job submission (default: local-od)"
 	@echo "  Example: make test-dispatcher OUT_DIR=./custom-output"
 
 # ── Data Preparation ──────────────────────────────────────────────────────────
@@ -254,7 +261,7 @@ docker-run: reset-run
 # ── Service Management ────────────────────────────────────────────────────────
 
 DOCKER_TAG=${GIT_COMMIT}
-register-service: ivcap-docker-build
+register-service: ivcap-docker-publish
 	@echo "▶ Merging IVCAP service definition with workflow..."
 	./merge-ivcap-workflow.sh ivcap.yml image-classify-workflow.yaml ivcap-service-with-workflow.yaml
 	@echo "▶ Replacing Docker image placeholder with $(DOCKER_IMAGE)..."
@@ -265,7 +272,7 @@ register-service: ivcap-docker-build
 	ivcap df update ${SERVICE_ID} -f ivcap-service-with-workflow.yaml
 
 DOCKER_TAG=${GIT_COMMIT}
-ivcap-docker-build:
+ivcap-docker-publish:
 	@echo "▶ Building Docker image for IVCAP service..."
 	@echo "  Version: $(VERSION)"
 	docker buildx build \
@@ -278,6 +285,18 @@ ivcap-docker-build:
 	@echo "------------------------------------------------------"
 	@echo "▶ Uploading Docker image for IVCAP service..."
 	ivcap package push $(DOCKER_IMAGE)_amd64:${DOCKER_TAG}
+
+ivcap-test-job:
+	@echo "▶ Submitting test job to IVCAP..."
+	ivcap job create ${SERVICE_ID} -f ivcap-test-request.json --stream
+
+CONTEXT=local-od
+ivcap-test-job-local:
+	@echo "▶ Submitting test job to IVCAP..."
+	ivcap \
+		--context ${CONTEXT} \
+		--access-token $(shell ivcap context get access-token) \
+		job create ${SERVICE_ID} -f ivcap-test-request.json --stream
 
 # ── Info ───────────────────────────────────────────────────────────────────────
 
