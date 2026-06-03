@@ -1,12 +1,16 @@
 # image-classify-workflow.yaml
 #
-# Multi-stage Argo Workflow: Pretrained Image Classification with MobileNetV2
+# Multi-stage Argo Workflow: Bird Species Classification with EfficientNetB2
 #
 # Stages:
-#   1. fetch      – download model (mobilenetv2-12.onnx), ImageNet labels,
-#                   and sample images (packaged as IVCAP artifacts)
-#   2. preprocess – resize + centre-crop + normalise each image → .npy tensors
-#   3. classify   – run ONNX Runtime inference, write result.ivcap.json
+#   1. fetch      – download EfficientNetB2 model (from IVCAP artifact) and bird
+#                   images (IVCAP artifact) onto the shared workspace volume
+#   2. preprocess – run each image through EfficientNetImageProcessor → .npy tensors
+#   3. classify   – run PyTorch inference with EfficientNetForImageClassification,
+#                   write top-5 bird species predictions to result.ivcap.json
+#
+# The EfficientNetB2 model is stored as an IVCAP artifact (never baked into the
+# Docker image). Create the model artifact once with: make prepare-model
 #
 # All stages share a single emptyDir volume (/workspace) so no external
 # artifact store (S3/MinIO) is required for a self-contained demo.
@@ -29,9 +33,9 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: image-classify-
+  generateName: bird-classify-
   labels:
-    demo: mobilenetv2-onnx
+    demo: efficientnetb2-birds
 spec:
   # ── Global settings ──────────────────────────────────────────────────────────
   entrypoint: pipeline
@@ -43,6 +47,7 @@ spec:
       - name: model_artifact_urn
 
   # Shared volume: all three pods mount this at /workspace
+  # EfficientNetB2 model (~35 MB) + images + tensors — 2 Gi gives comfortable headroom
   volumeClaimTemplates:
     - metadata:
         name: workspace
@@ -50,7 +55,7 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 500Mi   # model ~13 MB + images + tensors, headroom to spare
+            storage: 2Gi
 
   # ── Top-level pipeline ───────────────────────────────────────────────────────
   templates:
@@ -101,10 +106,10 @@ spec:
             mountPath: /workspace
         resources:
           requests:
-            memory: "256Mi"
+            memory: "512Mi"
             cpu: "250m"
           limits:
-            memory: "512Mi"
+            memory: "1Gi"
             cpu: "500m"
 
     # ── Stage 2: Preprocess ─────────────────────────────────────────────────────
@@ -130,10 +135,10 @@ spec:
             mountPath: /workspace
         resources:
           requests:
-            memory: "256Mi"
+            memory: "512Mi"
             cpu: "500m"
           limits:
-            memory: "512Mi"
+            memory: "1Gi"
             cpu: "1000m"
 
     # ── Stage 3: Classify ───────────────────────────────────────────────────────
@@ -163,10 +168,10 @@ spec:
             mountPath: /workspace
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
             memory: "1Gi"
+            cpu: "1000m"
+          limits:
+            memory: "2Gi"
             cpu: "2000m"
       # Argo reads /result.ivcap.json after the container exits and stores its
       # content in the workflow outputs — the IVCAP controller picks it up from

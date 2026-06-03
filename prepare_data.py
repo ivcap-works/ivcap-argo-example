@@ -1,75 +1,44 @@
 #!/usr/bin/env python3
 """
-Prepare local data for development and testing.
+Prepare bird images as an IVCAP artifact for development and testing.
 
-Downloads:
-  - MobileNetV2-12 ONNX model from Hugging Face (onnxmodelzoo/mobilenetv2-12)
-  - ImageNet class labels from pytorch/hub
-  - Sample images from Imagenette dataset (PyTorch torchvision)
+Downloads sample bird images from the HuggingFace 525-Bird-Species dataset
+(the same dataset used to train dennisjooo/Birds-Classifier-EfficientNetB2)
+and uploads them as an IVCAP artifact so the pipeline can reference them by URN.
+
+Dataset: yashikota/birds-525-species-image-classification
+         (525 labelled bird species, features: image + label)
 
 Outputs (written to ./data/):
-  - model/mobilenetv2-12.onnx
-  - model/imagenet_classes.txt
-  - images/image_XXXX.jpg   (one per sample image)
-  - manifest.json           (list of image filenames)
-  - images.zip              (zipped images directory, uploaded to IVCAP as artifact)
+  - images/image_XXXX.jpg         (one per sample image)
+  - manifest.json                 (list of image filenames + species labels)
+  - images-<UUID>.zip             (zipped images uploaded to IVCAP as artifact)
+
+The model artifact is handled separately by prepare_model.py / make prepare-model.
 
 This script is for LOCAL DEVELOPMENT ONLY and is not included in Docker.
 """
 
 import os
 import json
-import urllib.request
 import sys
-import urllib.error
-import time
 import random
-import shutil
-from pathlib import Path
 import zipfile
 import re
+from pathlib import Path
+
+# ── HuggingFace dataset that matches the EfficientNetB2 bird classifier ────────
+# This is the 525-species bird dataset used to train the model.
+# Change this constant if a different bird dataset is preferred.
+BIRD_DATASET_ID = "yashikota/birds-525-species-image-classification"
+BIRD_DATASET_SPLIT = "validation"  # "validation" split gives quick, varied samples
 
 
-def download_file(
-    url: str, dest_path: str, description: str = "file", retries: int = 3
-) -> bool:
-    """Download a file with proper headers, retry logic, and error handling."""
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-
-    for attempt in range(retries):
-        try:
-            print(f"  Downloading {description}...", end=" ", flush=True)
-            with urllib.request.urlopen(req, timeout=30) as response:
-                with open(dest_path, "wb") as out_file:
-                    out_file.write(response.read())
-            size_kb = os.path.getsize(dest_path) / 1024
-            print(f"✓ ({size_kb:.1f} KB)")
-            return True
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429 and attempt < retries - 1:
-                # Rate limited, wait and retry
-                wait_time = 5 * (attempt + 1)
-                print(f"rate limited, waiting {wait_time}s...", flush=True)
-                time.sleep(wait_time)
-            else:
-                print(f"✗ {exc}", file=sys.stderr)
-                return False
-        except Exception as exc:
-            print(f"✗ {exc}", file=sys.stderr)
-            return False
-    return False
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def zip_images_directory(image_dir: Path) -> str:
-    """Zip the images directory and return the path to the zip file.
-
-    Args:
-        image_dir: Path to the images directory
-
-    Returns:
-        Path to the created zip file
-    """
+def zip_images_directory(image_dir: Path) -> Path:
+    """Zip the images directory and return the path to the zip file."""
     zip_path = image_dir.parent / "images.zip"
 
     print(f"\n📦 Creating zip archive...")
@@ -79,51 +48,14 @@ def zip_images_directory(image_dir: Path) -> str:
                 zipf.write(image_file, arcname=image_file.name)
         size_mb = zip_path.stat().st_size / 1e6
         print(f"  ✓ images.zip created ({size_mb:.1f} MB)")
-        return str(zip_path)
+        return zip_path
     except Exception as exc:
         print(f"  ✗ Failed to create zip: {exc}", file=sys.stderr)
         raise
 
 
-def zip_model_directory(model_dir: Path) -> str:
-    """Zip the model directory and return the path to the zip file.
-
-    Args:
-        model_dir: Path to the model directory
-
-    Returns:
-        Path to the created zip file
-    """
-    zip_path = model_dir.parent / "model.zip"
-
-    print(f"\n📦 Creating model zip archive...")
-    try:
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for model_file in sorted(model_dir.glob("*")):
-                if model_file.is_file():
-                    zipf.write(model_file, arcname=model_file.name)
-        size_mb = zip_path.stat().st_size / 1e6
-        print(f"  ✓ model.zip created ({size_mb:.1f} MB)")
-        return str(zip_path)
-    except Exception as exc:
-        print(f"  ✗ Failed to create model zip: {exc}", file=sys.stderr)
-        raise
-
-
-def upload_artifact_to_ivcap(zip_path: str, artifact_name: str = "images.zip") -> str:
-    """Upload a zip file as an IVCAP artifact.
-
-    Args:
-        zip_path: Path to the zip file to upload
-        artifact_name: Name of the artifact (default: "images.zip")
-
-    Returns:
-        The artifact UUID (without urn: prefix)
-
-    Raises:
-        ImportError: If ivcap-client is not installed
-        Exception: If upload fails
-    """
+def upload_artifact_to_ivcap(zip_path: Path, artifact_name: str = "images.zip") -> str:
+    """Upload a zip file as an IVCAP artifact, return the artifact UUID."""
     try:
         from ivcap_client import IVCAP
     except ImportError:
@@ -135,16 +67,12 @@ def upload_artifact_to_ivcap(zip_path: str, artifact_name: str = "images.zip") -
 
     print(f"\n☁️  Uploading artifact to IVCAP...")
     try:
-        # Create IVCAP instance (reads IVCAP_URL and IVCAP_JWT from environment)
         ivcap = IVCAP()
+        artifact = ivcap.upload_artifact(name=artifact_name, file_path=str(zip_path))
 
-        # Upload the zip file as an artifact
-        artifact = ivcap.upload_artifact(name=artifact_name, file_path=zip_path)
-
-        # Extract UUID from artifact URN (format: urn:ivcap:artifact:xxx)
-        artifact_urn = artifact.id
-        match = re.search(r"([a-f0-9\-]+)$", str(artifact_urn))
-        artifact_uuid = match.group(1) if match else str(artifact_urn)
+        artifact_urn = str(artifact.id)
+        match = re.search(r"([a-f0-9\-]+)$", artifact_urn)
+        artifact_uuid = match.group(1) if match else artifact_urn
 
         print(f"  ✓ Artifact uploaded with URN: {artifact_urn}")
         return artifact_uuid
@@ -155,34 +83,102 @@ def upload_artifact_to_ivcap(zip_path: str, artifact_name: str = "images.zip") -
 
 
 def rename_zip_with_uuid(
-    zip_path: str, artifact_uuid: str, prefix: str = "images"
-) -> str:
-    """Rename the zip file to include the artifact UUID.
-
-    Args:
-        zip_path: Current path to the zip file
-        artifact_uuid: The artifact UUID
-        prefix: Prefix for the renamed file (default: "images")
-
-    Returns:
-        The new path to the renamed zip file
-    """
-    zip_path_obj = Path(zip_path)
-    new_zip_path = zip_path_obj.parent / f"{prefix}-{artifact_uuid}.zip"
-
+    zip_path: Path, artifact_uuid: str, prefix: str = "images"
+) -> Path:
+    """Rename the zip file to include the artifact UUID."""
+    new_zip_path = zip_path.parent / f"{prefix}-{artifact_uuid}.zip"
     try:
-        zip_path_obj.rename(new_zip_path)
-        print(f"  ✓ Renamed to: {prefix}-{artifact_uuid}.zip")
-        return str(new_zip_path)
+        zip_path.rename(new_zip_path)
+        print(f"  ✓ Renamed to: {new_zip_path.name}")
+        return new_zip_path
     except Exception as exc:
         print(f"  ✗ Failed to rename zip file: {exc}", file=sys.stderr)
         raise
 
 
+def download_bird_images(image_dir: Path, num_images: int) -> list[dict]:
+    """Download bird images from HuggingFace 525-Bird-Species dataset.
+
+    Returns a list of dicts with keys: filename, label, species.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        print(
+            "  ERROR: 'datasets' not installed. Install with: poetry install",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(
+        f"  Loading {BIRD_DATASET_ID} (split='{BIRD_DATASET_SPLIT}') from HuggingFace..."
+    )
+    try:
+        dataset = load_dataset(BIRD_DATASET_ID, split=BIRD_DATASET_SPLIT)
+    except Exception as exc:
+        print(
+            f"  ERROR: Failed to load dataset '{BIRD_DATASET_ID}': {exc}",
+            file=sys.stderr,
+        )
+        print(
+            "  Tip: Check the dataset name at https://huggingface.co/datasets",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    total = len(dataset)
+    print(f"  Dataset loaded: {total} images across bird species")
+
+    indices = random.sample(range(total), min(num_images, total))
+
+    downloaded = []
+    for i, idx in enumerate(indices):
+        sample = dataset[idx]
+        filename = f"image_{i:04d}.jpg"
+        dest = image_dir / filename
+
+        # The image column is a PIL Image in most HF vision datasets
+        img = sample.get("image") or sample.get("img") or sample.get("pixel_values")
+        if img is None:
+            print(
+                f"  WARNING: sample {idx} has no image field — skipping",
+                file=sys.stderr,
+            )
+            continue
+
+        # Convert to RGB (some PNGs are RGBA) and save as JPEG
+        img = img.convert("RGB")
+        img.save(str(dest), format="JPEG", quality=90)
+
+        # Capture the label/species name
+        label_id = sample.get("label", sample.get("labels", None))
+        if label_id is not None and hasattr(
+            dataset.features.get("label", dataset.features.get("labels")), "int2str"
+        ):
+            label_feature = dataset.features.get("label") or dataset.features.get(
+                "labels"
+            )
+            species = label_feature.int2str(label_id)
+        else:
+            species = str(label_id) if label_id is not None else "unknown"
+
+        size_kb = dest.stat().st_size / 1024
+        print(f"  ✓ {filename}  species={species}  ({size_kb:.1f} KB)")
+        downloaded.append({"filename": filename, "label": label_id, "species": species})
+
+    return downloaded
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+
 def prepare_data(
     data_dir: str = "./data", num_images: int = 5, upload_artifact: bool = True
 ):
-    """Prepare data directories and download model + sample images.
+    """Prepare bird image directories and upload them as an IVCAP artifact.
+
+    Downloads sample images from the HuggingFace 525-Bird-Species dataset
+    (matching the training data of dennisjooo/Birds-Classifier-EfficientNetB2).
 
     Args:
         data_dir: Directory to store data (default: ./data)
@@ -190,63 +186,21 @@ def prepare_data(
         upload_artifact: Whether to zip and upload images as IVCAP artifact (default: True)
     """
     data_path = Path(data_dir)
-    model_dir = data_path / "model"
     image_dir = data_path / "images"
 
-    # Create directories
-    model_dir.mkdir(parents=True, exist_ok=True)
     image_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n📁 Data directory: {data_path.resolve()}")
-    print(f"   ├─ model/   → {model_dir.resolve()}")
-    print(f"   └─ images/  → {image_dir.resolve()}\n")
+    print(f"   Dataset        : {BIRD_DATASET_ID}")
+    print(f"   └─ images/     → {image_dir.resolve()}\n")
 
-    # ── Model ────────────────────────────────────────────────────────────────
-    model_path = model_dir / "mobilenetv2-12.onnx"
-    model_url = (
-        "https://huggingface.co/onnxmodelzoo/mobilenetv2-12"
-        "/resolve/main/mobilenetv2-12.onnx"
-    )
+    # ── Check for existing images ──────────────────────────────────────────────
+    print("🐦  Bird Images (525-Species dataset):")
 
-    print("🤖 Model:")
-    if model_path.exists():
-        size_mb = model_path.stat().st_size / 1e6
-        print(f"  ✓ mobilenetv2-12.onnx already present ({size_mb:.1f} MB)")
-    else:
-        if download_file(model_url, str(model_path), "MobileNetV2-12 ONNX model"):
-            size_mb = os.path.getsize(model_path) / 1e6
-            print(f"    Model size: {size_mb:.1f} MB")
-        else:
-            print("  ERROR: Failed to download model", file=sys.stderr)
-            sys.exit(1)
-
-    # ── ImageNet labels ───────────────────────────────────────────────────────
-    labels_path = model_dir / "imagenet_classes.txt"
-    labels_url = (
-        "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
-    )
-
-    print("\n📝 ImageNet Labels:")
-    if labels_path.exists():
-        n_labels = sum(1 for _ in open(labels_path))
-        print(f"  ✓ imagenet_classes.txt already present ({n_labels} classes)")
-    else:
-        if download_file(labels_url, str(labels_path), "ImageNet class labels"):
-            n_labels = sum(1 for _ in open(labels_path))
-            print(f"    {n_labels} class labels loaded")
-        else:
-            print("  ERROR: Failed to download labels", file=sys.stderr)
-            sys.exit(1)
-
-    # ── Sample images ─────────────────────────────────────────────────────────
-    # Sample images from Imagenette dataset (PyTorch torchvision)
-    print("\n🖼️  Sample Images:")
-
-    # Check for existing images
     existing_images = sorted(image_dir.glob("image_*.jpg"))
     existing_count = len(existing_images)
 
-    # If count differs from requested, delete all and download new ones
+    # If count differs from requested, delete all and re-download
     if existing_count != num_images:
         if existing_count > 0:
             print(
@@ -254,65 +208,43 @@ def prepare_data(
             )
             for img_file in existing_images:
                 img_file.unlink()
-                print(f"    Removed {img_file.name}")
             existing_count = 0
 
-    # If we already have the right number, reuse them
     downloaded = []
     newly_downloaded = 0
 
     if existing_count == num_images:
-        # Use existing images
-        for img_file in existing_images:
+        # Re-use existing images; try to read species from manifest if available
+        manifest_path = data_path / "manifest.json"
+        species_map = {}
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                old_manifest = json.load(f)
+            for entry in old_manifest.get("images", []):
+                if isinstance(entry, dict):
+                    species_map[entry["filename"]] = entry.get("species", "unknown")
+
+        for img_file in sorted(image_dir.glob("image_*.jpg")):
             size_kb = img_file.stat().st_size / 1024
-            print(f"  ✓ {img_file.name} already present ({size_kb:.1f} KB)")
-            downloaded.append(img_file.name)
+            species = species_map.get(img_file.name, "unknown")
+            print(
+                f"  ✓ {img_file.name} already present  species={species}  ({size_kb:.1f} KB)"
+            )
+            downloaded.append({"filename": img_file.name, "species": species})
     else:
-        # Download new images from Imagenette dataset
-        try:
-            from torchvision.datasets import Imagenette
-
-            print(f"  Loading Imagenette dataset...")
-            # Load validation dataset
-            dataset = Imagenette(
-                root="./imagenette_data", split="val", size="320px", download=True
-            )
-
-            # Get N random indices
-            indices = random.sample(range(len(dataset)), min(num_images, len(dataset)))
-
-            # Extract images
-            for i, idx in enumerate(indices):
-                filename = f"image_{i:04d}.jpg"
-                dest = image_dir / filename
-
-                image, label = dataset[idx]
-                image.save(str(dest))
-
-                size_kb = dest.stat().st_size / 1024
-                print(f"  ✓ Extracted {filename} ({size_kb:.1f} KB)")
-                downloaded.append(filename)
-                newly_downloaded += 1
-
-        except ImportError:
-            print(
-                "  ERROR: torchvision not installed. Install with: pip install torchvision",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        except Exception as exc:
-            print(
-                f"  ERROR: Failed to download images from Imagenette: {exc}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        records = download_bird_images(image_dir, num_images)
+        downloaded = records
+        newly_downloaded = len(records)
 
     if not downloaded:
         print("  ERROR: no images were processed", file=sys.stderr)
         sys.exit(1)
 
     # ── Manifest ───────────────────────────────────────────────────────────────
-    manifest = {"images": downloaded}
+    manifest = {
+        "dataset": BIRD_DATASET_ID,
+        "images": downloaded,
+    }
     manifest_path = data_path / "manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
@@ -320,17 +252,9 @@ def prepare_data(
     # ── Upload images to IVCAP ────────────────────────────────────────────────
     if upload_artifact and len(downloaded) > 0:
         try:
-            # Zip the images directory
             zip_path = zip_images_directory(image_dir)
-
-            # Upload the zip file as an IVCAP artifact
             artifact_uuid = upload_artifact_to_ivcap(zip_path)
-
-            # Rename the zip file with the artifact UUID
-            renamed_zip_path = rename_zip_with_uuid(zip_path, artifact_uuid)
-
-            print(f"\n✓ Images artifact uploaded and renamed: {renamed_zip_path}")
-
+            rename_zip_with_uuid(zip_path, artifact_uuid)
         except Exception as exc:
             print(
                 f"\n⚠ Warning: Artifact upload failed. Continuing without upload.",
@@ -338,41 +262,18 @@ def prepare_data(
             )
             print(f"  Error: {exc}", file=sys.stderr)
 
-    # ── Upload model to IVCAP ──────────────────────────────────────────────────
-    if upload_artifact:
-        try:
-            # Zip the model directory
-            zip_path = zip_model_directory(model_dir)
-
-            # Upload the zip file as an IVCAP artifact
-            artifact_uuid = upload_artifact_to_ivcap(
-                zip_path, artifact_name="model.zip"
-            )
-
-            # Rename the zip file with the artifact UUID
-            renamed_zip_path = rename_zip_with_uuid(
-                zip_path, artifact_uuid, prefix="model"
-            )
-
-            print(f"\n✓ Model artifact uploaded and renamed: {renamed_zip_path}")
-
-        except Exception as exc:
-            print(
-                f"\n⚠ Warning: Model artifact upload failed. Continuing without upload.",
-                file=sys.stderr,
-            )
-            print(f"  Error: {exc}", file=sys.stderr)
-
     print(f"\n✅ Data preparation complete!")
-    print(f"   {len(downloaded)} images ({newly_downloaded} downloaded)")
+    print(f"   {len(downloaded)} bird images ({newly_downloaded} downloaded)")
     print(f"   Manifest: {manifest_path}")
+    print(f"")
+    print(f"   To prepare the model artifact, run: make prepare-model")
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Prepare local data for development and testing"
+        description="Prepare bird images from HuggingFace and upload as IVCAP artifact"
     )
     parser.add_argument(
         "--data-dir",
@@ -390,8 +291,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip uploading images as IVCAP artifact",
     )
+    parser.add_argument(
+        "--dataset",
+        default=BIRD_DATASET_ID,
+        help=f"HuggingFace dataset ID to use (default: {BIRD_DATASET_ID})",
+    )
 
     args = parser.parse_args()
+
+    # Allow overriding the dataset constant at runtime
+    if args.dataset != BIRD_DATASET_ID:
+        BIRD_DATASET_ID = args.dataset
+
     prepare_data(
         data_dir=args.data_dir,
         num_images=args.num_images,

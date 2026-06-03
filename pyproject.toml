@@ -1,17 +1,27 @@
 [tool.poetry]
 name = "image-classify-app"
 version = "0.1.0"
-description = "Image Classification Pipeline using MobileNetV2 ONNX model"
+description = "Bird Species Classification Pipeline using EfficientNetB2 (HuggingFace Transformers)"
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
 package-mode = false
 
 
+# PyTorch CPU-only wheel source.
+# Avoids pulling CUDA/NVIDIA driver packages (~4 GB) from the default PyPI torch wheel.
+# Run `poetry lock` after any change here to regenerate poetry.lock with the CPU wheels.
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
 [tool.poetry.dependencies]
 python = "^3.11"
 pillow = "^10.0.0"
 numpy = "^1.24.0"
-onnxruntime = "^1.17.0"
+transformers = "^4.35.0"
+torch = {version = ">=2.0.0", source = "pytorch-cpu"}
+safetensors = ">=0.3.0"
 ivcap-client = "^0.47.0"
 pydantic = "^2.13.4"
 
@@ -22,7 +32,7 @@ pytest = "^7.4.0"
 black = "^23.0.0"
 flake8 = "^6.0.0"
 mypy = "^1.4.0"
-torchvision = "*"
+datasets = ">=3.0.0"
 
 [build-system]
 requires = ["poetry-core"]

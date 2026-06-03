@@ -1,35 +1,42 @@
 $id: urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14
 $schema: urn:ivcap:schema.service.2
-name: ivcap-argo-example-image-classification
+name: bird-classification-argo
 description: |
-  A self-contained, three-stage Argo Workflow that classifies images using a
-  pretrained **MobileNetV2** model via **ONNX Runtime**..
+  A self-contained, three-stage Argo Workflow that classifies bird species using a
+  pretrained **EfficientNetB2** model (dennisjooo/Birds-Classifier-EfficientNetB2)
+  via **HuggingFace Transformers**.
+
+  The model is loaded at runtime from an IVCAP artifact — it is never baked into
+  the Docker image. Create the model artifact once with `make prepare-model`.
 
   Stages:
-    1. fetch      – download model (mobilenetv2-12.onnx), and images (packaged as IVCAP artifacts)
-    2. preprocess – resize + centre-crop + normalise each image → .npy tensors
-    3. classify   – run ONNX Runtime inference, write results.json
+    1. fetch      – download EfficientNetB2 model artifact and bird images artifact from IVCAP
+    2. preprocess – resize + normalise each image via EfficientNetImageProcessor → .npy tensors
+    3. classify   – run PyTorch inference, write top-5 bird species results to result.ivcap.json
 contact:
   email: mary.doe@acme.au
   name: Mary Doe
 request-schema:
-  $id: urn:ivcap.tutorial:schema:image-classify-pipeline.request.1
+  $id: urn:ivcap.tutorial:schema:bird-classify-pipeline.request.1
   $schema: http://json-schema.org/draft-07/schema#
   properties:
     images_artifact_urn:
       type: string
-      description: IVCAP artifact URN containing sample images for classification
+      description: IVCAP artifact URN containing bird images (.jpg) for classification
       pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
       example: 'urn:ivcap:artifact:fac6093e-d142-4958-9241-b02a81abb5d0'
     model_artifact_urn:
       type: string
-      description: IVCAP artifact URN containing the pretrained MobileNetV2 ONNX model
+      description: >
+        IVCAP artifact URN containing the saved EfficientNetB2 model
+        (config.json, model.safetensors, preprocessor_config.json).
+        Create this artifact once with: make prepare-model
       pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
       example: 'urn:ivcap:artifact:0b7d5c7e-ba9f-46a1-a80d-0dc6bb5a9b90'
   required:
   - images_artifact_urn
   - model_artifact_urn
-  title: Request to run image classification pipeline
+  title: Request to run bird species classification pipeline
   type: object
 
 controller-schema: urn:ivcap:schema.service.argo.1

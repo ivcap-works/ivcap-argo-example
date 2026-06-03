@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Unified dispatcher for all image classification pipeline stages.
+Unified dispatcher for all bird species classification pipeline stages.
 
 Routes command-line invocations to the appropriate stage function.
 Each stage is called with explicit directory arguments.
 
 Usage:
-  python dispatcher.py --stage fetch --out-dir /workspace/data
+  python dispatcher.py --stage fetch \\
+    --images-artifact-urn urn:ivcap:artifact:xxx \\
+    --model-artifact-urn  urn:ivcap:artifact:yyy \\
+    --out-dir /workspace/data
   python dispatcher.py --stage preprocess --in-dir /workspace/data --out-dir /workspace/data
-  python dispatcher.py --stage classify --in-dir /workspace/data --out-dir /workspace/data
+  python dispatcher.py --stage classify   --in-dir /workspace/data --out-dir /workspace/data
 """
 
 import argparse
@@ -32,15 +35,20 @@ def setup_logging(log_level: str = "INFO") -> logging.Logger:
 def main():
     """Main dispatcher: parse args and route to the appropriate stage."""
     parser = argparse.ArgumentParser(
-        description="Image classification pipeline dispatcher",
+        description="Bird species classification pipeline dispatcher",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Create the model artifact once (before the first pipeline run):
+  python prepare_model.py
+
+  # Then run the pipeline stages:
   python dispatcher.py --stage fetch \\
     --images-artifact-urn urn:ivcap:artifact:xxx \\
-    --model-artifact-urn urn:ivcap:artifact:yyy
+    --model-artifact-urn  urn:ivcap:artifact:yyy \\
+    --out-dir /workspace/data
   python dispatcher.py --stage preprocess --in-dir /workspace/data --out-dir /workspace/data
-  python dispatcher.py --stage classify --in-dir /workspace/data --out-dir /workspace/data
+  python dispatcher.py --stage classify   --in-dir /workspace/data --out-dir /workspace/data
         """,
     )
 
@@ -53,12 +61,12 @@ Examples:
     parser.add_argument(
         "--images-artifact-urn",
         default=None,
-        help="URN of the images artifact (required for fetch stage)",
+        help="URN of the bird images artifact (required for fetch stage)",
     )
     parser.add_argument(
         "--model-artifact-urn",
         default=None,
-        help="URN of the model artifact (required for fetch stage)",
+        help="URN of the EfficientNetB2 model artifact (required for fetch stage)",
     )
     parser.add_argument(
         "--in-dir",
@@ -86,8 +94,8 @@ Examples:
             model_urn = args.model_artifact_urn or os.environ.get("MODEL_ARTIFACT_URN")
 
             logger.info(f"Running fetch stage with OUT_DIR={out_dir}")
-            logger.info(f"  Images artifact: {images_urn}")
-            logger.info(f"  Model artifact: {model_urn}")
+            logger.info(f"  Bird images artifact : {images_urn}")
+            logger.info(f"  EfficientNetB2 model artifact: {model_urn}")
 
             fetch_stage(
                 out_dir=out_dir,

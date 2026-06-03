@@ -1,5 +1,6 @@
 #!/bin/bash
-# Wrapper script to run dispatcher.py via poetry
-# This simplifies Docker commands by collapsing 'poetry run python dispatcher.py' into a single call
+# Wrapper script to run dispatcher.py
+# Dependencies are installed system-wide in the Docker image (poetry virtualenvs.create false),
+# so we invoke python directly to avoid Poetry's "Skipping virtualenv creation" noise.
 
-exec poetry run python dispatcher.py "$@"
+exec python dispatcher.py "$@"

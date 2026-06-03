@@ -24,7 +24,12 @@ OUT_DIR ?= $(RUN_DIR)/outputs
 IN_DIR ?= $(OUT_DIR)
 
 help:
-	@echo "Image Classification Pipeline - Available Commands"
+	@echo "Bird Species Classification Pipeline - Available Commands"
+	@echo ""
+	@echo "One-time Setup (run before first pipeline execution):"
+	@echo "  make prepare-model    Download EfficientNetB2 from HuggingFace & upload as IVCAP artifact"
+	@echo "  make download-model   Download EfficientNetB2 locally only (no IVCAP upload)"
+	@echo "  make prepare-data     Download sample bird images & upload as IVCAP artifact"
 	@echo ""
 	@echo "Setup & Installation:"
 	@echo "  make install          Install dependencies (production)"
@@ -33,9 +38,9 @@ help:
 	@echo "  make update           Update all dependencies"
 	@echo ""
 	@echo "Running Pipeline Stages (direct):"
-	@echo "  make run-stage1       Run Stage 1: Fetch model and images"
-	@echo "  make run-stage2       Run Stage 2: Preprocess images"
-	@echo "  make run-stage3       Run Stage 3: Classify images"
+	@echo "  make run-stage1       Run Stage 1: Fetch model and bird images"
+	@echo "  make run-stage2       Run Stage 2: Preprocess images (EfficientNetImageProcessor)"
+	@echo "  make run-stage3       Run Stage 3: Classify bird species (EfficientNetB2)"
 	@echo "  make run-all          Run all stages sequentially"
 	@echo ""
 	@echo "Testing Dispatcher Pattern:"
@@ -61,25 +66,48 @@ help:
 	@echo "  make ivcap-test-job-local  Submit a test job via local IVCAP context"
 	@echo ""
 	@echo "Variables:"
-	@echo "  OUT_DIR               Output directory (default: ./outputs)"
+	@echo "  OUT_DIR               Output directory (default: ./run/outputs)"
 	@echo "  CONTEXT               IVCAP context for local job submission (default: local-od)"
-	@echo "  Example: make test-dispatcher OUT_DIR=./custom-output"
 
-# ── Data Preparation ──────────────────────────────────────────────────────────
+# ── One-time Data / Model Preparation ─────────────────────────────────────────
+
+# Detect uploaded EfficientNetB2 model artifact (created by prepare-model)
+MODEL_HF_UUID := $(shell ls data/efficientnet-birds-*.zip 2>/dev/null | sed 's|.*efficientnet-birds-||; s|\.zip||' | head -1 || echo '')
+MODEL_HF_ARTIFACT_URN := urn:ivcap:artifact:$(MODEL_HF_UUID)
+
+# Detect uploaded bird images artifact (created by prepare-data)
+IMAGES_UUID := $(shell ls data/images-*.zip 2>/dev/null | sed 's|.*images-||; s|\.zip||' | head -1 || echo '')
+IMAGES_ARTIFACT_URN := urn:ivcap:artifact:$(IMAGES_UUID)
+
+prepare-model:
+	@echo "▶ Downloading Birds-Classifier-EfficientNetB2 from HuggingFace..."
+	@echo "  This downloads ~35 MB of model weights and uploads them as an IVCAP artifact."
+	@mkdir -p ./data
+	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
+		poetry run $(PYTHON) prepare_model.py
+	@echo "✓ Model artifact ready. URN is stored in data/model_artifact.json"
+
+download-model:
+	@echo "▶ Downloading Birds-Classifier-EfficientNetB2 from HuggingFace (local only)..."
+	@mkdir -p ./data
+	@poetry run $(PYTHON) prepare_model.py --no-upload
+	@echo "✓ Model downloaded to ./data/model (no IVCAP upload)"
 
 prepare-data:
-	@echo "▶ Preparing local data (model, labels, images) to ./data directory..."
+	@echo "▶ Preparing bird images to ./data directory..."
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
 		poetry run $(PYTHON) prepare_data.py
-	@echo "✓ Data prepared successfully to ./data"
+	@echo "✓ Bird images prepared and uploaded to IVCAP"
 
 # ── Data Caching ──────────────────────────────────────────────────────────────
 
 cache-data:
-	@echo "▶ Caching external data (model, labels, images) to ./data directory..."
+	@echo "▶ Caching bird images and model to ./data directory..."
 	@mkdir -p ./data
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
-		DATA_CACHE_DIR=./data poetry run $(PYTHON) stage1_fetch.py
+		DATA_CACHE_DIR=./data poetry run $(PYTHON) stage1_fetch.py \
+		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN)
 	@echo "✓ Data cached successfully to ./data"
 
 
@@ -93,7 +121,7 @@ clean-cache:
 poetry-init:
 	@echo "Initializing Poetry project..."
 	@if [ ! -f pyproject.toml ]; then \
-		poetry init --no-interaction --name image-classify-app --description "Image Classification Pipeline" --author "Your Name"; \
+		poetry init --no-interaction --name image-classify-app --description "Bird Species Classification Pipeline" --author "Your Name"; \
 	else \
 		echo "pyproject.toml already exists"; \
 	fi
@@ -105,32 +133,12 @@ install:
 dev-install:
 	@echo "Installing dependencies (including dev tools)..."
 	poetry install
-	@echo ""
-	@echo "Optional: Install ONNX Runtime (may require compatible pre-built wheels)"
-	@echo "  make install-onnx"
-
-install-onnx:
-	@echo "Installing onnxruntime from requirements-optional.txt..."
-	@poetry run pip install -r requirements-optional.txt || \
-		echo "⚠ Warning: onnxruntime installation failed. You may need to:"
-	@echo "  1. Build from source: pip install --no-binary :all: onnxruntime"
-	@echo "  2. Use a pre-compiled wheel from GitHub Releases"
-	@echo "  3. Use conda-forge: conda install onnxruntime"
-
 
 update:
 	@echo "Updating all dependencies..."
 	poetry update
 
 # ── Pipeline Stages ──────────────────────────────────────────────────────────
-
-# Dynamically extract UUIDs from data files and construct artifact URNs
-# This makes the Makefile resilient to future changes in model/image collections
-IMAGES_UUID := $(shell ls data/images-*.zip 2>/dev/null | sed 's|.*images-||; s|\.zip||' || echo '')
-IMAGES_ARTIFACT_URN := urn:ivcap:artifact:$(IMAGES_UUID)
-
-MODEL_UUID := $(shell ls data/model-*.zip 2>/dev/null | sed 's|.*model-||; s|\.zip||' || echo '')
-MODEL_ARTIFACT_URN := urn:ivcap:artifact:$(MODEL_UUID)
 
 reset-run:
 	@echo "▶ Clearing run directory: $(RUN_DIR)..."
@@ -139,42 +147,45 @@ reset-run:
 	@echo "✓ Run directory reset"
 
 run-stage1:
-	@echo "▶ Stage 1: Fetching model and sample images..."
+	@echo "▶ Stage 1: Fetching EfficientNetB2 model and bird images..."
 	@mkdir -p $(OUT_DIR)
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
 		OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage1_fetch.py \
 		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
-		--model-artifact-urn $(MODEL_ARTIFACT_URN)
+		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN)
 	@echo "✓ Stage 1 complete"
 
 
 run-stage2: run-stage1
-	@echo "▶ Stage 2: Preprocessing images..."
+	@echo "▶ Stage 2: Preprocessing images with EfficientNetImageProcessor..."
 	@IN_DIR=$(OUT_DIR) OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage2_preprocess.py
 	@echo "✓ Stage 2 complete"
 
 run-stage3: run-stage2
-	@echo "▶ Stage 3: Classifying images..."
+	@echo "▶ Stage 3: Classifying bird species..."
 	@IN_DIR=$(OUT_DIR) OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage3_classify.py
 	@echo "✓ Stage 3 complete"
 
 run-all: run-stage3
 	@echo ""
 	@echo "✓✓✓ Pipeline complete!"
-	@echo "Results written to: $(OUT_DIR)/results.json"
-	@if [ -f $(OUT_DIR)/results.json ]; then \
+	@echo "Results written to: $(OUT_DIR)/result.ivcap.json"
+	@if [ -f $(OUT_DIR)/result.ivcap.json ]; then \
 		echo ""; \
 		echo "Preview:"; \
-		head -30 $(OUT_DIR)/results.json; \
+		head -30 $(OUT_DIR)/result.ivcap.json; \
 	fi
 
-# ── Dispatcher Pattern Tests (new) ────────────────────────────────────────────
+# ── Dispatcher Pattern Tests ──────────────────────────────────────────────────
 
 test-fetch:
 	@echo "▶ Testing dispatcher: Stage 1 (fetch)..."
 	@mkdir -p $(OUT_DIR)
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
-		LOG_LEVEL=INFO poetry run $(PYTHON) dispatcher.py --stage fetch --out-dir $(OUT_DIR)
+		LOG_LEVEL=INFO poetry run $(PYTHON) dispatcher.py --stage fetch \
+		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN) \
+		--out-dir $(OUT_DIR)
 	@echo "✓ Dispatcher fetch test complete"
 
 
@@ -191,11 +202,11 @@ test-classify: test-preprocess
 test-dispatcher: test-classify
 	@echo ""
 	@echo "✓✓✓ Dispatcher pipeline test complete!"
-	@echo "Results written to: $(OUT_DIR)/results.json"
-	@if [ -f $(OUT_DIR)/results.json ]; then \
+	@echo "Results written to: $(OUT_DIR)/result.ivcap.json"
+	@if [ -f $(OUT_DIR)/result.ivcap.json ]; then \
 		echo ""; \
 		echo "Preview:"; \
-		head -30 $(OUT_DIR)/results.json; \
+		head -30 $(OUT_DIR)/result.ivcap.json; \
 	fi
 
 # ── Development & Testing ────────────────────────────────────────────────────
@@ -218,7 +229,7 @@ clean:
 	@rm -rf $(OUT_DIR)/model $(OUT_DIR)/images $(OUT_DIR)/tensors $(OUT_DIR)/*.json
 	@echo "✓ Clean complete"
 
-# ── Docker helpers (optional) ──────────────────────────────────────────────────
+# ── Docker helpers ─────────────────────────────────────────────────────────────
 
 docker-build:
 	@echo "Building Docker image..."
@@ -233,7 +244,7 @@ docker-run: reset-run
 		$(DOCKER_IMAGE):latest \
 		--stage fetch --out-dir /workspace/outputs \
 		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
-		--model-artifact-urn $(MODEL_ARTIFACT_URN)
+		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN)
 	@echo "✓ Stage 1 complete"
 	@echo ""
 	@echo "▶ Running Stage 2 (Preprocess) in Docker..."
@@ -251,11 +262,11 @@ docker-run: reset-run
 	@echo "✓ Stage 3 complete"
 	@echo ""
 	@echo "✓✓✓ Docker pipeline complete!"
-	@echo "Results written to: $(RUN_DIR)/outputs/results.json"
-	@if [ -f $(RUN_DIR)/outputs/results.json ]; then \
+	@echo "Results written to: $(RUN_DIR)/outputs/result.ivcap.json"
+	@if [ -f $(RUN_DIR)/outputs/result.ivcap.json ]; then \
 		echo ""; \
 		echo "Preview:"; \
-		head -30 $(RUN_DIR)/outputs/results.json; \
+		head -30 $(RUN_DIR)/outputs/result.ivcap.json; \
 	fi
 
 # ── Service Management ────────────────────────────────────────────────────────
@@ -305,7 +316,15 @@ info:
 	@echo "  Python version: $$($(PYTHON) --version)"
 	@poetry --version
 	@echo ""
+	@echo "Artifact URNs (detected from data/ directory):"
+	@echo "  Images : $(IMAGES_ARTIFACT_URN)"
+	@echo "  Model  : $(MODEL_HF_ARTIFACT_URN)"
+	@echo ""
 	@echo "Dependencies:"
 	@poetry show --tree
 
-.PHONY: help install dev-install update poetry-init run-stage1 run-stage2 run-stage3 run-all test-fetch test-preprocess test-classify test-dispatcher test lint format clean docker-build docker-run info prepare-data clean-cache cache-data
+.PHONY: help install dev-install update poetry-init prepare-model download-model prepare-data cache-data clean-cache \
+        reset-run run-stage1 run-stage2 run-stage3 run-all \
+        test-fetch test-preprocess test-classify test-dispatcher \
+        test lint format clean docker-build docker-run info \
+        ivcap-docker-publish register-service ivcap-test-job ivcap-test-job-local
