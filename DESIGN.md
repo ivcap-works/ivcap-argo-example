@@ -15,6 +15,28 @@ the model to be updated independently of the service code.
 
 ---
 
+## Table of Contents
+
+- [High-Level Architecture](#high-level-architecture)
+- [Pipeline Stages](#pipeline-stages)
+  - [Stage 1 — Fetch](#stage-1--fetch-stage1_fetchpy)
+  - [Stage 2 — Preprocess](#stage-2--preprocess-stage2_preprocesspy)
+  - [Stage 3 — Classify](#stage-3--classify-stage3_classifypy)
+- [Dispatcher Pattern](#dispatcher-pattern)
+- [Docker Image](#docker-image)
+- [Argo Workflow](#argo-workflow-image-classify-workflowyaml)
+- [IVCAP Integration](#ivcap-integration)
+  - [Service Definition](#service-definition-ivcapyml)
+  - [Authentication](#authentication)
+- [One-Time Setup](#one-time-setup)
+  - [Model Artifact](#model-artifact-make-prepare-model)
+  - [Images Artifact](#images-artifact-make-prepare-data)
+- [Local Development](#local-development)
+- [Logging](#logging)
+- [Dependencies](#dependencies)
+
+---
+
 ## High-Level Architecture
 
 ```mermaid
