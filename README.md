@@ -186,38 +186,128 @@ make ivcap-test-job
 make ivcap-test-job-local
 ```
 
-To submit directly with the `argo` CLI:
+To submit directly with the `ivcap` CLI and switching on event streaming for immedaite feedback:
 
 ```bash
-argo submit image-classify-workflow.yaml \
-  -p images_artifact_urn=urn:ivcap:artifact:<uuid> \
-  -p model_artifact_urn=urn:ivcap:artifact:<uuid> \
-  --watch
-```
+ivcap job create urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14 -f ivcap-test-request.json --stream
+ ─────────
+ID: 00063725 - ivcap.job.status
+{
+  "SeqID": "00063725",
+  "eventID": "019e9188-5f48-795e-b727-9f517999674e",
+  "type": "ivcap.job.status",
+  "schema": "urn:ivcap:schema:job.status.1",
+  "source": "controller",
+  "timestamp": "2026-06-04T07:28:14.152615Z",
+  "data": {
+    "job-urn": "urn:ivcap:job:a2acc877-d125-47d2-8922-4ce665f044a9",
+    "status": "pending"
+  }
+}
+...
+─────────
+ID: 00063741 - ivcap.job.argo.phase
+{
+  "SeqID": "00063741",
+  "eventID": "019e918a-0d95-741a-94fc-b2cdc5332528",
+  "type": "ivcap.job.argo.phase",
+  "source": "controller/argo",
+  "timestamp": "2026-06-04T07:30:04.309272Z",
+  "data": {
+    "job-urn": "urn:ivcap:job:a2acc877-d125-47d2-8922-4ce665f044a9",
+    "message": "a-bird-classif-4ce665f044a9-58cpw-2180853872: Pending→Running",
+    "phase": "Running",
+    "progress": "2/3"
+  }
+}
+...
+─────────
+ID: 00063744 - ivcap.job.succeeded
+{
+  "SeqID": "00063744",
+  "eventID": "019e918a-3622-7334-880d-cb804280dbdf",
+  "type": "ivcap.job.succeeded",
+  "schema": "urn:ivcap:schema:job.status.1",
+  "source": "controller",
+  "timestamp": "2026-06-04T07:30:14.690213Z",
+  "data": {
+    "job-urn": "urn:ivcap:job:a2acc877-d125-47d2-8922-4ce665f044a9",
+    "status": "succeeded"
+  }
+}
+─────────
 
+         Name  a-bird-classif-4ce665f044a9
+IVCAP Status  succeeded
+       Result  urn:ivcap:aspect:1b2371c9-6aa2-44d9-be95-bbca803acdc7 (@1)
+               {
+                 "model": "dennisjooo/Birds-Classifier-EfficientNetB2",
+                 "results": [
+                   {
+                     "image": "image_0000.jpg",
+                     "inference_ms": 706.6,
+                     "top5": [
+                       {
+                         "label": "SWINHOES PHEASANT",
+                         "rank": 1,
+               ...
+
+           ID  urn:ivcap:job:a2acc877-d125-47d2-8922-4ce665f044a9 (@2)
+   Started At  2 minutes ago (04 Jun 26 17:28 AEST)
+  Finished At  4 seconds ago (04 Jun 26 17:30 AEST)
+      Service  urn:ivcap:service:7c9e66d9-74fa-4c8e-8f55-1d39b8204f14 (@3)
+       Policy  urn:ivcap:policy:ivcap.base.service
+      Account  urn:ivcap:account:45a06508-5c3a-4678-8e6d-e6399bf27538      ```
+```
 ---
 
 ## Expected Output
 
-`result.ivcap.json` contains top-5 bird species predictions per image:
+The result of the run (internally written to ivcap.result.json) contains top-5 bird species predictions per image:
 
 ```json
-{
-  "model": "dennisjooo/Birds-Classifier-EfficientNetB2",
-  "results": [
-    {
-      "image": "image_0000.jpg",
-      "inference_ms": 182.1,
-      "top5": [
-        { "rank": 1, "label": "SWINHOES PHEASANT",    "score": 0.9999 },
-        { "rank": 2, "label": "BULWERS PHEASANT",     "score": 0.0001 },
-        { "rank": 3, "label": "CRESTED FIREBACK",     "score": 0.0 },
-        { "rank": 4, "label": "CRESTED WOOD PARTRIDGE","score": 0.0 },
-        { "rank": 5, "label": "RED LEGGED HONEYCREEPER","score": 0.0 }
-      ]
-    }
-  ]
-}
+% ivcap df get urn:ivcap:aspect:1b2371c9-6aa2-44d9-be95-bbca803acdc7
+
+        ID  urn:ivcap:aspect:1b2371c9-6aa2-44d9-be95-bbca803acdc7 (@1)
+    Entity  urn:ivcap:job:a2acc877-d125-47d2-8922-4ce665f044a9
+    Schema  urn:ivcap:schema:argo.job-result.1
+  Asserter  urn:ivcap:principal:45a06508-5c3a-4678-8e6d-e6399bf27538:auth0%7C63eed6bb3b16f287edc3af41
+ ValidFrom  8 minutes ago
+   Content  {
+              "model": "dennisjooo/Birds-Classifier-EfficientNetB2",
+              "results": [
+                {
+                  "image": "image_0000.jpg",
+                  "inference_ms": 706.6,
+                  "top5": [
+                    {
+                      "label": "SWINHOES PHEASANT",
+                      "rank": 1,
+                      "score": 0.9999
+                    },
+                    {
+                      "label": "BULWERS PHEASANT",
+                      "rank": 2,
+                      "score": 0.0001
+                    },
+                    {
+                      "label": "CRESTED FIREBACK",
+                      "rank": 3,
+                      "score": 0
+                    },
+                    {
+                      "label": "CRESTED WOOD PARTRIDGE",
+                      "rank": 4,
+                      "score": 0
+                    },
+                    {
+                      "label": "RED LEGGED HONEYCREEPER",
+                      "rank": 5,
+                      "score": 0
+                    }
+                  ]
+                },
+                ...
 ```
 
 ---
