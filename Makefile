@@ -29,7 +29,7 @@ help:
 	@echo "One-time Setup (run before first pipeline execution):"
 	@echo "  make prepare-model    Download EfficientNetB2 from HuggingFace & upload as IVCAP artifact"
 	@echo "  make download-model   Download EfficientNetB2 locally only (no IVCAP upload)"
-	@echo "  make prepare-data     Download sample bird images & upload as IVCAP artifact"
+	@echo "  make prepare-data     Download sample bird images & upload each as a standalone IVCAP artifact in a collection"
 	@echo ""
 	@echo "Setup & Installation:"
 	@echo "  make install          Install dependencies (production)"
@@ -75,9 +75,8 @@ help:
 MODEL_HF_UUID := $(shell ls data/efficientnet-birds-*.zip 2>/dev/null | sed 's|.*efficientnet-birds-||; s|\.zip||' | head -1 || echo '')
 MODEL_HF_ARTIFACT_URN := urn:ivcap:artifact:$(MODEL_HF_UUID)
 
-# Detect uploaded bird images artifact (created by prepare-data)
-IMAGES_UUID := $(shell ls data/images-*.zip 2>/dev/null | sed 's|.*images-||; s|\.zip||' | head -1 || echo '')
-IMAGES_ARTIFACT_URN := urn:ivcap:artifact:$(IMAGES_UUID)
+# Detect uploaded bird images collection URN (created by prepare-data, stored in manifest.json)
+IMAGES_COLLECTION_URN := $(shell jq -r '.collection_urn // empty' data/manifest.json 2>/dev/null || echo '')
 
 prepare-model:
 	@echo "▶ Downloading Birds-Classifier-EfficientNetB2 from HuggingFace..."
@@ -106,7 +105,7 @@ cache-data:
 	@mkdir -p ./data
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
 		DATA_CACHE_DIR=./data poetry run $(PYTHON) stage1_fetch.py \
-		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--collection-urn $(IMAGES_COLLECTION_URN) \
 		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN)
 	@echo "✓ Data cached successfully to ./data"
 
@@ -151,7 +150,7 @@ run-stage1:
 	@mkdir -p $(OUT_DIR)
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
 		OUT_DIR=$(OUT_DIR) poetry run $(PYTHON) stage1_fetch.py \
-		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--collection-urn $(IMAGES_COLLECTION_URN) \
 		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN)
 	@echo "✓ Stage 1 complete"
 
@@ -183,7 +182,7 @@ test-fetch:
 	@mkdir -p $(OUT_DIR)
 	@env IVCAP_URL=$(shell ivcap context get url) IVCAP_JWT=$(shell ivcap context get access-token) \
 		LOG_LEVEL=INFO poetry run $(PYTHON) dispatcher.py --stage fetch \
-		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
+		--collection-urn $(IMAGES_COLLECTION_URN) \
 		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN) \
 		--out-dir $(OUT_DIR)
 	@echo "✓ Dispatcher fetch test complete"
@@ -243,8 +242,9 @@ docker-run: reset-run
 		-e LOG_LEVEL=INFO \
 		$(DOCKER_IMAGE):latest \
 		--stage fetch --out-dir /workspace/outputs \
-		--images-artifact-urn $(IMAGES_ARTIFACT_URN) \
-		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN)
+		--collection-urn $(IMAGES_COLLECTION_URN) \
+		--model-artifact-urn $(MODEL_HF_ARTIFACT_URN) \
+		--limit 5
 	@echo "✓ Stage 1 complete"
 	@echo ""
 	@echo "▶ Running Stage 2 (Preprocess) in Docker..."
@@ -317,7 +317,7 @@ info:
 	@poetry --version
 	@echo ""
 	@echo "Artifact URNs (detected from data/ directory):"
-	@echo "  Images : $(IMAGES_ARTIFACT_URN)"
+	@echo "  Images collection : $(IMAGES_COLLECTION_URN)"
 	@echo "  Model  : $(MODEL_HF_ARTIFACT_URN)"
 	@echo ""
 	@echo "Dependencies:"

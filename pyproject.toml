@@ -7,22 +7,23 @@ readme = "README.md"
 package-mode = false
 
 
-# PyTorch CPU-only wheel source.
-# Avoids pulling CUDA/NVIDIA driver packages (~4 GB) from the default PyPI torch wheel.
-# Run `poetry lock` after any change here to regenerate poetry.lock with the CPU wheels.
-[[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
+# NOTE: torch is intentionally NOT pinned to the pytorch-cpu source here.
+# The Dockerfile handles CPU-only torch via:
+#   pip install "torch>=2.0.0" --index-url https://download.pytorch.org/whl/cpu
+# ...before Poetry runs, so Poetry just sees torch already installed and skips it.
+# On macOS (dev), PyPI torch for arm64 is already CUDA-free — no pytorch-cpu needed.
+# Pinning source = "pytorch-cpu" breaks macOS resolution because that index uses
+# version suffixes (+cpu) only for Linux wheels, causing Poetry to fail on arm64.
 
 [tool.poetry.dependencies]
 python = "^3.11"
 pillow = "^10.0.0"
 numpy = "^1.24.0"
 transformers = "^4.35.0"
-torch = {version = ">=2.0.0", source = "pytorch-cpu"}
+torch = ">=2.0.0"
+torchvision = ">=0.15.0"
 safetensors = ">=0.3.0"
-ivcap-client = "^0.47.0"
+ivcap-client = "^0.47.14"
 pydantic = "^2.13.4"
 
 

@@ -4,13 +4,18 @@
 #
 # Stages:
 #   1. fetch      – download EfficientNetB2 model (from IVCAP artifact) and bird
-#                   images (IVCAP artifact) onto the shared workspace volume
+#                   images (from an IVCAP collection — each image is a standalone
+#                   artifact created by prepare_data.py / make prepare-data)
+#                   onto the shared workspace volume
 #   2. preprocess – run each image through EfficientNetImageProcessor → .npy tensors
 #   3. classify   – run PyTorch inference with EfficientNetForImageClassification,
 #                   write top-5 bird species predictions to result.ivcap.json
 #
 # The EfficientNetB2 model is stored as an IVCAP artifact (never baked into the
 # Docker image). Create the model artifact once with: make prepare-model
+#
+# Images are stored as individual IVCAP artifacts grouped in a collection.
+# Create the collection once with: make prepare-data
 #
 # All stages share a single emptyDir volume (/workspace) so no external
 # artifact store (S3/MinIO) is required for a self-contained demo.
@@ -26,8 +31,15 @@
 # Usage:
 #   argo submit image-classify-workflow.yaml --watch
 #   argo submit image-classify-workflow.yaml \
-#     -p images_artifact_urn=urn:ivcap:artifact:xxx \
+#     -p collection_urn=urn:ivcap:collection:xxx \
 #     -p model_artifact_urn=urn:ivcap:artifact:yyy \
+#     --watch
+#
+#   # Process only the first 10 images:
+#   argo submit image-classify-workflow.yaml \
+#     -p collection_urn=urn:ivcap:collection:xxx \
+#     -p model_artifact_urn=urn:ivcap:artifact:yyy \
+#     -p limit=10 \
 #     --watch
 #
 apiVersion: argoproj.io/v1alpha1
@@ -42,9 +54,15 @@ spec:
 
   arguments:
     parameters:
-      # IVCAP artifact URNs for images and model (required parameters)
-      - name: images_artifact_urn
+      # URN of the IVCAP collection containing individual bird image artifacts
+      # (created by prepare_data.py / make prepare-data)
+      - name: collection_urn
+      # URN of the EfficientNetB2 model artifact (created by make prepare-model)
       - name: model_artifact_urn
+      # Optional: maximum number of images to process from the collection.
+      # Set to 0 (default) to process all images.
+      - name: limit
+        value: "0"
 
   # Shared volume: all three pods mount this at /workspace
   # EfficientNetB2 model (~35 MB) + images + tensors — 2 Gi gives comfortable headroom
@@ -92,10 +110,12 @@ spec:
         args:
           - --stage
           - fetch
-          - --images-artifact-urn
-          - "{{workflow.parameters.images_artifact_urn}}"
+          - --collection-urn
+          - "{{workflow.parameters.collection_urn}}"
           - --model-artifact-urn
           - "{{workflow.parameters.model_artifact_urn}}"
+          - --limit
+          - "{{workflow.parameters.limit}}"
           - --out-dir
           - /workspace/data
         env:

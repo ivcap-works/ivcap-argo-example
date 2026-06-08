@@ -7,8 +7,13 @@ Each stage is called with explicit directory arguments.
 
 Usage:
   python dispatcher.py --stage fetch \\
-    --images-artifact-urn urn:ivcap:artifact:xxx \\
-    --model-artifact-urn  urn:ivcap:artifact:yyy \\
+    --collection-urn     urn:ivcap:collection:xxx \\
+    --model-artifact-urn urn:ivcap:artifact:yyy \\
+    --out-dir /workspace/data
+  python dispatcher.py --stage fetch \\
+    --collection-urn     urn:ivcap:collection:xxx \\
+    --model-artifact-urn urn:ivcap:artifact:yyy \\
+    --limit 10 \\
     --out-dir /workspace/data
   python dispatcher.py --stage preprocess --in-dir /workspace/data --out-dir /workspace/data
   python dispatcher.py --stage classify   --in-dir /workspace/data --out-dir /workspace/data
@@ -29,6 +34,9 @@ def setup_logging(log_level: str = "INFO") -> logging.Logger:
     """Configure logging based on LOG_LEVEL environment variable."""
     level = getattr(logging, log_level.upper(), logging.INFO)
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+    # httpx (used by ivcap-client) logs every HTTP request at INFO level.
+    # Suppress those to WARNING to keep pipeline output readable.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     return logging.getLogger(__name__)
 
 
@@ -44,9 +52,17 @@ Examples:
 
   # Then run the pipeline stages:
   python dispatcher.py --stage fetch \\
-    --images-artifact-urn urn:ivcap:artifact:xxx \\
-    --model-artifact-urn  urn:ivcap:artifact:yyy \\
+    --collection-urn     urn:ivcap:collection:xxx \\
+    --model-artifact-urn urn:ivcap:artifact:yyy \\
     --out-dir /workspace/data
+
+  # Limit to 10 images from the collection:
+  python dispatcher.py --stage fetch \\
+    --collection-urn     urn:ivcap:collection:xxx \\
+    --model-artifact-urn urn:ivcap:artifact:yyy \\
+    --limit 10 \\
+    --out-dir /workspace/data
+
   python dispatcher.py --stage preprocess --in-dir /workspace/data --out-dir /workspace/data
   python dispatcher.py --stage classify   --in-dir /workspace/data --out-dir /workspace/data
         """,
@@ -59,14 +75,26 @@ Examples:
         help="Which pipeline stage to run",
     )
     parser.add_argument(
-        "--images-artifact-urn",
+        "--collection-urn",
         default=None,
-        help="URN of the bird images artifact (required for fetch stage)",
+        help=(
+            "URN of the IVCAP collection containing bird image artifacts "
+            "(required for fetch stage)"
+        ),
     )
     parser.add_argument(
         "--model-artifact-urn",
         default=None,
         help="URN of the EfficientNetB2 model artifact (required for fetch stage)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help=(
+            "Maximum number of images to fetch from the collection "
+            "(0 = no limit, default: 0; fetch stage only)"
+        ),
     )
     parser.add_argument(
         "--in-dir",
@@ -88,19 +116,21 @@ Examples:
     try:
         if args.stage == "fetch":
             out_dir = args.out_dir or os.environ.get("OUT_DIR", "/tmp/outputs")
-            images_urn = args.images_artifact_urn or os.environ.get(
-                "IMAGES_ARTIFACT_URN"
-            )
+            collection_urn = args.collection_urn or os.environ.get("COLLECTION_URN")
             model_urn = args.model_artifact_urn or os.environ.get("MODEL_ARTIFACT_URN")
+            limit = args.limit if args.limit > 0 else None
 
             logger.info(f"Running fetch stage with OUT_DIR={out_dir}")
-            logger.info(f"  Bird images artifact : {images_urn}")
+            logger.info(f"  Bird images collection   : {collection_urn}")
             logger.info(f"  EfficientNetB2 model artifact: {model_urn}")
+            if limit:
+                logger.info(f"  Image limit              : {limit}")
 
             fetch_stage(
                 out_dir=out_dir,
-                images_artifact_urn=images_urn,
+                collection_urn=collection_urn,
                 model_artifact_urn=model_urn,
+                limit=limit,
             )
 
         elif args.stage == "preprocess":

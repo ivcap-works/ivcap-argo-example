@@ -9,8 +9,12 @@ description: |
   The model is loaded at runtime from an IVCAP artifact — it is never baked into
   the Docker image. Create the model artifact once with `make prepare-model`.
 
+  Images are read from an IVCAP **collection** of individual image artifacts — each
+  artifact is a single bird image uploaded by `prepare_data.py` / `make prepare-data`.
+
   Stages:
-    1. fetch      – download EfficientNetB2 model artifact and bird images artifact from IVCAP
+    1. fetch      – download EfficientNetB2 model artifact and iterate the image
+                    collection, fetching each image artifact individually from IVCAP
     2. preprocess – resize + normalise each image via EfficientNetImageProcessor → .npy tensors
     3. classify   – run PyTorch inference, write top-5 bird species results to result.ivcap.json
 contact:
@@ -20,11 +24,13 @@ request-schema:
   $id: urn:ivcap.tutorial:schema:bird-classify-pipeline.request.1
   $schema: http://json-schema.org/draft-07/schema#
   properties:
-    images_artifact_urn:
+    collection_urn:
       type: string
-      description: IVCAP artifact URN containing bird images (.jpg) for classification
-      pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
-      example: 'urn:ivcap:artifact:fac6093e-d142-4958-9241-b02a81abb5d0'
+      description: >
+        IVCAP collection URN whose items are individual bird image artifacts (.jpg).
+        Create the collection with: make prepare-data
+      pattern: '^urn:ivcap:collection:[a-f0-9\-]+$'
+      example: 'urn:ivcap:collection:5f3a9c12-1b2e-4d8a-9f7e-3c0b1d2e5f6a'
     model_artifact_urn:
       type: string
       description: >
@@ -33,8 +39,16 @@ request-schema:
         Create this artifact once with: make prepare-model
       pattern: '^urn:ivcap:artifact:[a-f0-9\-]+$'
       example: 'urn:ivcap:artifact:0b7d5c7e-ba9f-46a1-a80d-0dc6bb5a9b90'
+    limit:
+      type: integer
+      description: >
+        Optional maximum number of images to process from the collection.
+        Useful for testing with a large collection. 0 (default) means process all images.
+      minimum: 0
+      default: 0
+      example: 10
   required:
-  - images_artifact_urn
+  - collection_urn
   - model_artifact_urn
   title: Request to run bird species classification pipeline
   type: object

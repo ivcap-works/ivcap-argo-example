@@ -1,5 +1,6 @@
 {
   "$schema": "urn:ivcap.tutorial:schema:bird-classify-pipeline.request.1",
-  "images_artifact_urn": "urn:ivcap:artifact:07dcbb77-39c3-4b5b-a5f0-c3fc834f84b1",
-  "model_artifact_urn": "urn:ivcap:artifact:b300bdbc-4e87-46e2-8f65-c5ddb5fb7375"
+  "collection_urn": "urn:ivcap:collection:5f3a9c12-1b2e-4d8a-9f7e-3c0b1d2e5f6a",
+  "model_artifact_urn": "urn:ivcap:artifact:514f6719-1104-43a9-9f3a-7e1277f5c2b1",
+  "limit": 5
 }
