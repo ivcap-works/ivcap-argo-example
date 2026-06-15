@@ -35,8 +35,8 @@ runtime — it is never baked into the Docker image.
 ```mermaid
 flowchart LR
     subgraph Setup["One-Time Setup (local)"]
-        PM["make prepare-model\n→ uploads EfficientNetB2\n  as IVCAP artifact"]
-        PD["make prepare-data\n→ uploads bird images\n  as IVCAP artifact"]
+        PM["make prepare-model\n→ uploads EfficientNetB2 + model card\n  as IVCAP artifact"]
+        PD["make prepare-data\n→ uploads each bird image\n  as individual artifact\n  in an IVCAP collection"]
     end
 
     subgraph Pipeline["Argo Workflow (per job)"]
@@ -45,8 +45,8 @@ flowchart LR
         S3["Stage 3\nclassify\n──────\nEfficientNetB2 inference\n→ result.ivcap.json"]
     end
 
-    PM -->|model URN| S1
-    PD -->|images URN| S1
+    PM -->|model artifact URN| S1
+    PD -->|collection URN| S1
     S1 -->|sequential| S2
     S2 -->|sequential| S3
 ```
@@ -81,25 +81,55 @@ and upload data to IVCAP as reusable artifacts.
 
 ### 1. Prepare the model artifact
 
-Downloads EfficientNetB2 (~35 MB) from HuggingFace Hub and uploads it to IVCAP:
+Downloads EfficientNetB2 (~35 MB) from HuggingFace Hub, bundles it with the
+model card, and uploads it to IVCAP:
 
 ```bash
 make prepare-model
 ```
 
-The artifact URN is stored in `data/model_artifact.json` and the zip is
-retained locally so the Makefile can derive the URN automatically.
+`prepare_model.py` performs the following steps:
 
-### 2. Prepare the images artifact
+1. Downloads model weights + image processor from HuggingFace
+2. Downloads the **model card** (`model_card.md`) and structured metadata
+   (`model_metadata.json`) via `download_model_card.py` — no `huggingface_hub`
+   package required; uses only stdlib + `pydantic`
+3. Packages everything (weights, processor config, `model_card.md`,
+   `model_metadata.json`) into a single zip archive
+4. Uploads the zip to IVCAP and renames it to
+   `data/efficientnet-birds-<UUID>.zip` so the Makefile can derive the URN
+   automatically (`urn:ivcap:artifact:<UUID>`)
+5. Writes the URN to `data/model_artifact.json`
+6. Attaches the model card JSON as an **IVCAP aspect** on the artifact entity
+   with schema `urn:ivcap:schema:model-card.1` — making the model's provenance,
+   license, training dataset, and accuracy metrics discoverable from the artifact
+   URN without fetching the artifact itself
 
-Packages sample bird images and uploads them to IVCAP:
+To browse the attached model card after upload:
+```bash
+ivcap df get urn:ivcap:artifact:<UUID>
+```
+
+### 2. Prepare the images collection
+
+Downloads sample bird images from HuggingFace and uploads each image as an
+**individual IVCAP artifact** grouped in a named **collection**:
 
 ```bash
 make prepare-data
 ```
 
-After both steps, `make info` shows the artifact URNs that will be used at
-runtime:
+Each image becomes a standalone artifact (accessible by its own
+`urn:ivcap:artifact:…` URN) and is added to the collection via a
+`urn:ivcap:schema:collection-item.1` aspect.  The collection URN is stored in
+`data/manifest.json` and auto-detected by the Makefile.
+
+> **Note:** The pipeline's fetch stage (`stage1_fetch.py`) iterates the
+> collection using `CollectionItem.item` (the artifact URN) — not
+> `CollectionItem.id` (the aspect-record URN) — and passes the full limit to
+> `collection.items()` to avoid the default 10-item cap on large collections.
+
+After both steps, `make info` shows the URNs that will be used at runtime:
 
 ```bash
 make info
@@ -325,8 +355,11 @@ The result of the run (internally written to ivcap.result.json) contains top-5 b
 | `image-classify-workflow.yaml` | Argo Workflow definition (3 stages, shared PVC) |
 | `ivcap.yml` | IVCAP service definition (schema, request parameters) |
 | `merge-ivcap-workflow.sh` | Merges `ivcap.yml` + workflow YAML for service registration |
-| `prepare_model.py` | One-time: download EfficientNetB2 and upload as IVCAP artifact |
-| `prepare_data.py` | One-time: package bird images and upload as IVCAP artifact |
+| `prepare_model.py` | One-time: download EfficientNetB2, bundle with model card, upload as IVCAP artifact |
+| `prepare_data.py` | One-time: download bird images, upload each as individual IVCAP artifact in a collection |
+| `download_model_card.py` | Download & parse a HuggingFace model card (stdlib + pydantic only); outputs `model_card.md` and `model_metadata.json` |
+| `model_card.md` | Model card for `dennisjooo/Birds-Classifier-EfficientNetB2` (bundled in the model artifact zip) |
+| `model_metadata.json` | Structured model card metadata as JSON (Pydantic model; attached as `urn:ivcap:schema:model-card.1` aspect) |
 | `Makefile` | Convenience targets for all common tasks |
 | `DESIGN.md` | Architecture, design decisions, and detailed implementation notes |
 

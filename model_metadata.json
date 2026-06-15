@@ -1,0 +1,43 @@
+{
+  "id": "dennisjooo/Birds-Classifier-EfficientNetB2",
+  "author": "dennisjooo",
+  "url": "https://huggingface.co/dennisjooo/Birds-Classifier-EfficientNetB2",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "onnx",
+    "safetensors",
+    "efficientnet",
+    "image-classification",
+    "biology",
+    "efficientnet-b2",
+    "vision",
+    "base_model:google/efficientnet-b2",
+    "base_model:quantized:google/efficientnet-b2",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "deploy:azure",
+    "region:us"
+  ],
+  "license": "apache-2.0",
+  "pipeline_tag": "image-classification",
+  "base_model": "google/efficientnet-b2",
+  "model_description": "Have you look at a bird and said \"Boahh if only I know what bird that is\". \nUnless you're an avid bird spotter (or just love birds in general), it's hard to differentiate some species of birds.\nWell you're in luck, turns out you can use a image classifier to identify bird species!\n\nThis model is a fine-tuned version of [google/efficientnet-b2](https://huggingface.co/google/efficientnet-b2)\non the [gpiosenka/100-bird-species](https://www.kaggle.com/datasets/gpiosenka/100-bird-species) dataset available on Kaggle.\nThe dataset used to train the model was taken on September 24th, 2023. \n\nThe original model itself was trained on ImageNet-1K, thus it might still have some useful features for identifying creatures like birds.\n\nIn theory, the accuracy for a random guess on this dataset is 0.0019047619 (essentially 1/525). \nThe model performed significantly well on all three sets with result being:\n\n- **Training**: 0.999480\n- **Validation**: 0.985904\n- **Test**: 0.991238",
+  "intended_uses": "You can use the raw model for image classification.\nHere is an example of the model in action using a picture of a bird\n\n```python",
+  "preprocessing_info": "Each image is preprocessed according to the the orginal author's [config](https://huggingface.co/google/efficientnet-b2/blob/main/preprocessor_config.json).\n\nThe training set was also augmented using:\n\n- Random rotation of 10 degrees with probability of 50%\n- Random horizontal flipping with probability of 50%",
+  "training_dataset": {
+    "name": "gpiosenka/100-bird-species",
+    "url": "https://www.kaggle.com/datasets/gpiosenka/100-bird-species",
+    "num_classes": 525,
+    "num_training_samples": 84635,
+    "num_validation_samples": 2625,
+    "num_test_samples": 2625,
+    "image_size": "224x224"
+  },
+  "accuracy": {
+    "training": 0.99948,
+    "validation": 0.985904,
+    "test": 0.991238
+  },
+  "description": "---\nlicense: apache-2.0\nbase_model: google/efficientnet-b2\nmetrics:\n- accuracy\npipeline_tag: image-classification\ntags:\n- biology\n- efficientnet-b2\n- image-classification\n- vision\n---\n\n# Bird Classifier EfficientNet-B2 \n\n## Model Description\n\nHave you look at a bird and said \"Boahh if only I know what bird that is\". \nUnless you're an avid bird spotter (or just love birds in general), it's hard to differentiate some species of birds.\nWell you're in luck, turns out you can use a image classifier to identify bird species!\n\nThis model is a fine-tuned version of [google/efficientnet-b2](https://huggingface.co/google/efficientnet-b2)\non the [gpiosenka/100-bird-species](https://www.kaggle.com/datasets/gpiosenka/100-bird-species) dataset available on Kaggle.\nThe dataset used to train the model was taken on September 24th, 2023. \n\nThe original model itself was trained on ImageNet-1K, thus it might still have some useful features for identifying creatures like birds.\n\nIn theory, the accuracy for a random guess on this dataset is 0.0019047619 (essentially 1/525). \nThe model performed significantly well on all three sets with result being:\n\n- **Training**: 0.999480\n- **Validation**: 0.985904\n- **Test**: 0.991238\n\n## Intended Uses\n\nYou can use the raw model for image classification.\nHere is an example of the model in action using a picture of a bird\n\n```python\n# Importing the libraries needed\nimport torch\nimport urllib.request\nfrom PIL import Image\nfrom transformers import EfficientNetImageProcessor, EfficientNetForImageClassification\n\n# Determining the file URL\nurl = 'some url'\n\n# Opening the image using PIL\nimg = Image.open(urllib.request.urlretrieve(url)[0])\n\n# Loading the model and preprocessor from HuggingFace\npreprocessor = EfficientNetImageProcessor.from_pretrained(\"dennisjooo/Birds-Classifier-EfficientNetB2\")\nmodel = EfficientNetForImageClassification.from_pretrained(\"dennisjooo/Birds-Classifier-EfficientNetB2\")\n\n# Preprocessing the input\ninputs = preprocessor(img, return_tensors=\"pt\")\n\n# Running the inference\nwith torch.no_grad():\n    logits = model(**inputs).logits\n\n# Getting the predicted label\npredicted_label = logits.argmax(-1).item()\nprint(model.config.id2label[predicted_label])\n```\n\nOr alternatively you can streamline it using Huggingface's Pipeline\n\n```python\n# Importing the libraries needed\nimport torch\nimport urllib.request\nfrom PIL import Image\nfrom transformers import pipeline\n\n# Determining the file URL\nurl = 'some url'\n\n# Opening the image using PIL\nimg = Image.open(urllib.request.urlretrieve(url)[0])\n\n# Loading the model and preprocessor using Pipeline\npipe = pipeline(\"image-classification\", model=\"dennisjooo/Birds-Classifier-EfficientNetB2\")\n\n# Running the inference\nresult = pipe(img)[0]\n\n# Printing the result label\nprint(result['label'])\n```\n\n## Training and Evaluation\n\n### Data\n\nThe dataset was taken from [gpiosenka/100-bird-species](https://www.kaggle.com/datasets/gpiosenka/100-bird-species) on Kaggle. \nIt contains a set of 525 bird species, with 84,635 training images, 2,625 each for validation and test images. \nEvery image in the dataset is a 224 by 224 RGB image.\n\nThe training process used the same split provided by the author.\nFor more details, please refer to the [author's Kaggle page](https://www.kaggle.com/datasets/gpiosenka/100-bird-species).\n\n### Training Procedure \n\nThe training was done using PyTorch on Kaggle's free P100 GPU. The process also includes the usage of Lightning and Torchmetrics libraries.\n\n### Preprocessing \nEach image is preprocessed according to the the orginal author's [config](https://huggingface.co/google/efficientnet-b2/blob/main/preprocessor_config.json).\n\nThe training set was also augmented using:\n\n- Random rotation of 10 degrees with probability of 50%\n- Random horizontal flipping with probability of 50%\n\n### Training Hyperparameters\n\nThe following are the hyperparameters used for training:\n\n- **Training regime:** fp32\n- **Loss:** Cross entropy\n- **Optimizer**: Adam with default betas (0.99, 0.999)\n- **Learning rate**: 1e-3\n- **Learning rate scheduler**: Reduce on plateau which monitors validation loss with patience of 2 and decay rate of 0.1\n- **Batch size**: 64\n- **Early stopping**: Monitors validation accuracy with patience of 10\n\n### Results\n\nThe image below is the result of the training process both on the training and validation set:\n\n![Training results](https://github.com/dennisjooo/Birds-Classifier-EfficientNetB2/raw/main/logs/metrics.png)\n\n"
+}
